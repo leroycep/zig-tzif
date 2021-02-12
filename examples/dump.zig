@@ -15,4 +15,5 @@ pub fn main() !void {
     std.log.info("TZ string: {s}", .{localtime.string});
     std.log.info("TZif version: {s}", .{localtime.version.string()});
     std.log.info("{} transition times", .{localtime.transitionTimes.len});
+    std.log.info("{} leap seconds", .{localtime.leapSeconds.len});
 }

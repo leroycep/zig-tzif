@@ -151,7 +151,7 @@ pub const PosixTZ = struct {
             /// 0 <= day <= 365. Leap days are counted, and can be referred to.
             oneBased: bool,
             day: u16,
-            time: u16,
+            time: i32,
         },
         MonthWeekDay: struct {
             /// 1 <= m <= 12
@@ -160,7 +160,7 @@ pub const PosixTZ = struct {
             n: u8,
             /// 0 <= n <= 6
             d: u8,
-            time: u16,
+            time: i32,
         },
 
         pub fn toSecs(this: @This(), year: i32) i64 {
@@ -409,10 +409,10 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
     var string = _string;
     if (string.len < 2) return error.InvalidFormat;
 
-    const time: u16 = if (std.mem.indexOf(u8, string, "/")) |start_of_time| parse_time: {
+    const time: i32 = if (std.mem.indexOf(u8, string, "/")) |start_of_time| parse_time: {
         var _i: usize = 0;
         // This is ugly, should stick with one unit or the other for hhmmss offsets
-        const time = @intCast(u16, try hhmmss_offset_to_s(string[start_of_time + 1 ..], &_i));
+        const time = try hhmmss_offset_to_s(string[start_of_time + 1 ..], &_i);
         string = string[0..start_of_time];
         break :parse_time time;
     } else 2 * std.time.s_per_hour;
@@ -563,7 +563,7 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype, seekableStream: any
             leap_seconds[i].occur = try reader.readInt(i64, .Big);
             if (i == 0 and leap_seconds[i].occur < 0) {
                 return error.InvalidFormat;
-            } else if (leap_seconds[i].occur - leap_seconds[i - 1].occur < 2419199) {
+            } else if (i != 0 and leap_seconds[i].occur - leap_seconds[i - 1].occur < 2419199) {
                 return error.InvalidFormat; // There must be at least 28 days worth of seconds between leap seconds
             }
 

@@ -1,5 +1,10 @@
 const Builder = @import("std").build.Builder;
 
+const EXAMPLES = [_]@import("std").build.Pkg{
+    .{ .name = "dump", .path = "examples/dump.zig" },
+    .{ .name = "read-all-zoneinfo", .path = "examples/read-all-zoneinfo.zig" },
+};
+
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const lib = b.addStaticLibrary("tzif", "tzif.zig");
@@ -13,13 +18,16 @@ pub fn build(b: *Builder) void {
     test_step.dependOn(&main_tests.step);
 
     const target = b.standardTargetOptions(.{});
-    const dump_exe = b.addExecutable("dump", "examples/dump.zig");
-    dump_exe.addPackagePath("tzif", "tzif.zig");
-    dump_exe.setBuildMode(mode);
-    dump_exe.setTarget(target);
 
-    const run_dump_example = dump_exe.run();
-    
-    const run_dump_example_step = b.step("example-dump", "Run the `dump` example");
-    run_dump_example_step.dependOn(&run_dump_example.step);
+    inline for (EXAMPLES) |example| {
+        const exe = b.addExecutable(example.name, example.path);
+        exe.addPackagePath("tzif", "tzif.zig");
+        exe.setBuildMode(mode);
+        exe.setTarget(target);
+
+        const run_example = exe.run();
+
+        const run_example_step = b.step("example-" ++ example.name, "Run the `" ++ example.name ++ "` example");
+        run_example_step.dependOn(&run_example.step);
+    }
 }
