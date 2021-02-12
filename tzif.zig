@@ -23,18 +23,71 @@ pub const TimeZone = struct {
         this.allocator.free(this.transitionIsUT);
         this.allocator.free(this.string);
     }
-};
 
-pub const LocalTimeType = struct {
-    utoff: i32,
-    /// Indicates whether this local time is Daylight Saving Time
-    dst: bool,
-    idx: u8,
-};
+    fn findTransitionTime(this: @This(), utc: i64) ?usize {
+        var left: usize = 0;
+        var right: usize = this.transitionTimes.len;
 
-pub const LeapSecond = struct {
-    occur: i64,
-    corr: i32,
+        while (left < right) {
+            // Avoid overflowing in the midpoint calculation
+            const mid = left + (right - left) / 2;
+            // Compare the key with the midpoint element
+            if (this.transitionTimes[mid] == utc) {
+                if (mid + 1 < this.transitionTimes.len) {
+                    return mid;
+                } else {
+                    return null;
+                }
+            } else if (this.transitionTimes[mid] > utc) {
+                right = mid;
+            } else if (this.transitionTimes[mid] < utc) {
+                left = mid + 1;
+            }
+        }
+
+        if (right == this.transitionTimes.len) {
+            return null;
+        } else if (right > 0) {
+            return right - 1;
+        } else {
+            return 0;
+        }
+    }
+
+    pub const ConversionResult = struct {
+        timestamp: i64,
+        offset: i32,
+        dst: bool,
+        designation: [:0]const u8,
+    };
+
+    pub fn localTimeFromUTC(this: @This(), utc: i64) ConversionResult {
+        if (this.findTransitionTime(utc)) |idx| {
+            std.log.warn("trans[{}] = {}", .{ idx, this.transitionTimes[idx] });
+            const transition_type = this.transitionTypes[idx];
+            std.log.warn("trans_type[{}] = {}", .{ idx, transition_type });
+            const local_time_type = this.localTimeTypes[transition_type];
+            std.log.warn("localTimeTypes[{}] = {}", .{ transition_type, local_time_type });
+
+            var designation = this.designations[local_time_type.idx .. this.designations.len - 1 :0];
+            for (designation) |c, i| {
+                if (c == 0) {
+                    designation = designation[0..i :0];
+                    break;
+                }
+            }
+
+            return ConversionResult{
+                .timestamp = utc + local_time_type.utoff,
+                .offset = local_time_type.utoff,
+                .dst = local_time_type.dst,
+                .designation = designation,
+            };
+        } else {
+            // Base offset on the TZ string
+            unreachable;
+        }
+    }
 };
 
 pub const Version = enum(u8) {
@@ -52,7 +105,7 @@ pub const Version = enum(u8) {
     pub fn leapSize(this: @This()) u32 {
         return this.timeSize() + 4;
     }
-    
+
     pub fn string(this: @This()) []const u8 {
         return switch (this) {
             .V1 => "1",
@@ -60,6 +113,44 @@ pub const Version = enum(u8) {
             .V3 => "3",
         };
     }
+};
+
+pub const LocalTimeType = struct {
+    utoff: i32,
+    /// Indicates whether this local time is Daylight Saving Time
+    dst: bool,
+    idx: u8,
+};
+
+pub const LeapSecond = struct {
+    occur: i64,
+    corr: i32,
+};
+
+/// This is based on Posix definition of the TZ environment variable
+pub const PosixTZ = struct {
+    std: []const u8,
+    std_offset: i32,
+    dst: ?[]const u8 = null,
+    /// This field is ignored when dst is null
+    dst_offset: i32 = 0,
+    start: ?Rule = null,
+    end: ?Rule = null,
+
+    pub const Rule = union(enum) {
+        /// 1 <= JulianDay1 <= 365. Leap days are not counted and are impossible to refer to
+        JulianDay1: u16,
+        /// 0 <= JulianDay0 <= 365. Leap days are counted, and can be referred to.
+        JulianDay0: u16,
+        MonthWeekDay: struct {
+            /// 1 <= m <= 12
+            m: u8,
+            /// 1 <= n <= 5
+            n: u8,
+            /// 0 <= n <= 6
+            d: u8,
+        },
+    };
 };
 
 const TIME_TYPE_SIZE = 6;
@@ -112,6 +203,131 @@ pub fn parseHeader(reader: anytype, seekableStream: anytype) !TZifHeader {
         .typecnt = try reader.readInt(u32, .Big),
         .charcnt = try reader.readInt(u32, .Big),
     };
+}
+
+fn hhmmss_offset_to_s(_string: []const u8, idx: *usize) !i32 {
+    var string = _string;
+    var sign: i2 = 1;
+    if (string[0] == '+') {
+        sign = 1;
+        string = string[1..];
+        idx.* += 1;
+    } else if (string[0] == '-') {
+        sign = -1;
+        string = string[1..];
+        idx.* += 1;
+    }
+
+    for (string) |c, i| {
+        if (!(std.ascii.isDigit(c) or c == ':')) {
+            string = string[0..i];
+            break;
+        }
+        idx.* += 1;
+    }
+
+    var result: i32 = 0;
+
+    var segment_iter = std.mem.split(string, ":");
+    const hour_string = segment_iter.next() orelse return error.EmptyString;
+    const hours = try std.fmt.parseInt(u32, hour_string, 10);
+    if (hours > 24) return error.InvalidFormat;
+    result += std.time.s_per_hour * @intCast(i32, hours);
+
+    if (segment_iter.next()) |minute_string| {
+        const minutes = try std.fmt.parseInt(u32, minute_string, 10);
+        if (minutes > 59) return error.InvalidFormat;
+        result += std.time.s_per_min * @intCast(i32, minutes);
+    }
+
+    if (segment_iter.next()) |second_string| {
+        const seconds = try std.fmt.parseInt(u8, second_string, 10);
+        if (seconds > 59) return error.InvalidFormat;
+        result += seconds;
+    }
+
+    return result * sign;
+}
+
+fn parsePosixTZ_rule(string: []const u8) !PosixTZ.Rule {
+    if (string.len < 2) return error.InvalidFormat;
+    if (string[0] == 'J') {
+        const julian_day1 = try std.fmt.parseInt(u16, string[1..], 10);
+        if (julian_day1 < 1 or julian_day1 > 365) return error.InvalidFormat;
+        return PosixTZ.Rule{ .JulianDay1 = julian_day1 };
+    } else if (std.ascii.isDigit(string[0])) {
+        const julian_day0 = try std.fmt.parseInt(u16, string[0..], 10);
+        if (julian_day0 > 365) return error.InvalidFormat;
+        return PosixTZ.Rule{ .JulianDay0 = julian_day0 };
+    } else if (string[0] == 'M') {
+        var split_iter = std.mem.split(string[1..], ".");
+        const m_str = split_iter.next() orelse return error.InvalidFormat;
+        const n_str = split_iter.next() orelse return error.InvalidFormat;
+        const d_str = split_iter.next() orelse return error.InvalidFormat;
+
+        const m = try std.fmt.parseInt(u8, m_str, 10);
+        const n = try std.fmt.parseInt(u8, n_str, 10);
+        const d = try std.fmt.parseInt(u8, d_str, 10);
+
+        if (m < 1 or m > 12) return error.InvalidFormat;
+        if (n < 1 or n > 5) return error.InvalidFormat;
+        if (d > 6) return error.InvalidFormat;
+
+        return PosixTZ.Rule{ .MonthWeekDay = .{ .m = m, .n = n, .d = d } };
+    } else {
+        return error.InvalidFormat;
+    }
+}
+
+pub fn parsePosixTZ(string: []const u8) !PosixTZ {
+    var result = PosixTZ{ .std = undefined, .std_offset = undefined };
+    var idx: usize = 0;
+
+    // TODO: handle quoted designations
+    while (idx < string.len) : (idx += 1) {
+        if (!std.ascii.isAlpha(string[idx])) {
+            result.std = string[0..idx];
+            break;
+        }
+    }
+
+    result.std_offset = try hhmmss_offset_to_s(string[idx..], &idx);
+    if (idx >= string.len) {
+        return result;
+    }
+
+    if (string[idx] != ',') {
+        // TODO: handle quoted designations
+        const start_dst_designation = idx;
+        while (idx < string.len) : (idx += 1) {
+            if (!std.ascii.isAlpha(string[idx])) {
+                result.dst = string[start_dst_designation..idx];
+                break;
+            }
+        }
+        if (idx < string.len and string[idx] != ',') {
+            result.dst_offset = try hhmmss_offset_to_s(string[idx..], &idx);
+        } else {
+            result.dst_offset = result.std_offset + std.time.s_per_hour;
+        }
+
+        if (idx >= string.len) {
+            return result;
+        }
+    }
+
+    std.debug.assert(string[idx] == ',');
+    idx += 1;
+
+    if (std.mem.indexOf(u8, string[idx..], ",")) |_end_of_start_rule| {
+        const end_of_start_rule = idx + _end_of_start_rule;
+        result.start = try parsePosixTZ_rule(string[idx..end_of_start_rule]);
+        result.end = try parsePosixTZ_rule(string[end_of_start_rule + 1 ..]);
+    } else {
+        result.start = try parsePosixTZ_rule(string[idx..]);
+    }
+
+    return result;
 }
 
 pub fn parse(allocator: *std.mem.Allocator, reader: anytype, seekableStream: anytype) !TimeZone {
@@ -259,7 +475,7 @@ test "parse UTC zoneinfo" {
     testing.expectEqualSlices(u8, "UTC\x00", res.designations);
 }
 
-test "parse Pacific/Honolulu zoneinfo" {
+test "parse Pacific/Honolulu zoneinfo and calculate local times" {
     const transition_times = [7]i64{ -2334101314, -1157283000, -1155436200, -880198200, -769395600, -765376200, -712150200 };
     const transition_types = [7]u8{ 1, 2, 1, 3, 4, 1, 5 };
     const local_time_types = [6]LocalTimeType{
@@ -288,4 +504,28 @@ test "parse Pacific/Honolulu zoneinfo" {
     testing.expectEqualSlices(bool, is_std, res.transitionIsStd);
     testing.expectEqualSlices(bool, is_ut, res.transitionIsUT);
     testing.expectEqualSlices(u8, string, res.string);
+
+    {
+        const conversion = res.localTimeFromUTC(-1156939200);
+        testing.expectEqual(@as(i64, -1156973400), conversion.timestamp);
+        testing.expectEqual(true, conversion.dst);
+        testing.expectEqualSlices(u8, "HDT", conversion.designation);
+    }
+    //{
+    //    const conversion = res.localTimeFromUTC(1546300800);
+    //    testing.expectEqual(@as(i64, 1546264800), conversion.timestamp);
+    //    testing.expectEqual(false, conversion.dst);
+    //    testing.expectEqualSlices(u8, "HST", conversion.designation);
+    //}
+}
+
+test "posix TZ string" {
+    const result = try parsePosixTZ("MST7MDT,M3.2.0,M11.1.0");
+
+    testing.expectEqualSlices(u8, "MST", result.std);
+    testing.expectEqual(@as(i32, 25200), result.std_offset);
+    testing.expectEqualSlices(u8, "MDT", result.dst.?);
+    testing.expectEqual(@as(i32, 28800), result.dst_offset);
+    testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 3, .n = 2, .d = 0 } }, result.start.?);
+    testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 11, .n = 1, .d = 0 } }, result.end.?);
 }
