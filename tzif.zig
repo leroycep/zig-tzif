@@ -645,6 +645,15 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype, seekableStream: any
     };
 }
 
+pub fn parseFile(allocator: *std.mem.Allocator, path: []const u8) !TimeZone {
+    const cwd = std.fs.cwd();
+
+    const file = try cwd.openFile(path, .{});
+    defer file.close();
+
+    return parse(allocator, file.reader(), file.seekableStream());
+}
+
 test "parse invalid bytes" {
     var fbs = std.io.fixedBufferStream("dflkasjreklnlkvnalkfek");
     testing.expectError(error.InvalidFormat, parse(std.testing.allocator, fbs.reader(), fbs.seekableStream()));

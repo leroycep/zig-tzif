@@ -16,8 +16,7 @@ pub fn main() !u8 {
 
     const cwd = std.fs.cwd();
 
-    const localtime_file = try cwd.openFile(args[1], .{});
-    const localtime = try tzif.parse(allocator, localtime_file.reader(), localtime_file.seekableStream());
+    const localtime = try tzif.parseFile(allocator, args[1]);
     defer localtime.deinit();
 
     std.log.info("TZ string: {s}", .{localtime.string});
