@@ -620,7 +620,6 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype, seekableStream: any
     }
 
     // Parse TZ string from footer
-    // TODO: validate according to RFC 8536 section 3.3.1
     if ((try reader.readByte()) != '\n') return error.InvalidFormat;
     const tz_string = try reader.readUntilDelimiterAlloc(allocator, '\n', 60);
     errdefer allocator.free(tz_string);
