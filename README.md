@@ -51,4 +51,7 @@ deps:
 
 ## Caveats
 
+-   This library has not been rigorously tested, it might not always produce the
+    correct offset, especially for time zones that have changed between
+    different Daylight Savings schemes.
 -   Does not support version 1 files. Files must be version 2 or 3.
