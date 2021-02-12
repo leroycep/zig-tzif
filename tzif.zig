@@ -59,21 +59,18 @@ pub const TimeZone = struct {
         timestamp: i64,
         offset: i32,
         dst: bool,
-        designation: [:0]const u8,
+        designation: []const u8,
     };
 
-    pub fn localTimeFromUTC(this: @This(), utc: i64) ConversionResult {
+    pub fn localTimeFromUTC(this: @This(), utc: i64) ?ConversionResult {
         if (this.findTransitionTime(utc)) |idx| {
-            std.log.warn("trans[{}] = {}", .{ idx, this.transitionTimes[idx] });
             const transition_type = this.transitionTypes[idx];
-            std.log.warn("trans_type[{}] = {}", .{ idx, transition_type });
             const local_time_type = this.localTimeTypes[transition_type];
-            std.log.warn("localTimeTypes[{}] = {}", .{ transition_type, local_time_type });
 
-            var designation = this.designations[local_time_type.idx .. this.designations.len - 1 :0];
+            var designation = this.designations[local_time_type.idx .. this.designations.len - 1];
             for (designation) |c, i| {
                 if (c == 0) {
-                    designation = designation[0..i :0];
+                    designation = designation[0..i];
                     break;
                 }
             }
@@ -84,9 +81,17 @@ pub const TimeZone = struct {
                 .dst = local_time_type.dst,
                 .designation = designation,
             };
-        } else {
+        } else if (this.posixTZ) |posixTZ| {
             // Base offset on the TZ string
-            unreachable;
+            const offset_res = posixTZ.offset(utc);
+            return ConversionResult{
+                .timestamp = utc - offset_res.offset,
+                .offset = offset_res.offset,
+                .dst = offset_res.dst,
+                .designation = offset_res.designation,
+            };
+        } else {
+            return null;
         }
     }
 };
@@ -184,10 +189,16 @@ pub const PosixTZ = struct {
         }
     };
 
-    pub fn offset(this: @This(), utc: i64) i32 {
+    pub const OffsetResult = struct {
+        offset: i32,
+        designation: []const u8,
+        dst: bool,
+    };
+
+    pub fn offset(this: @This(), utc: i64) OffsetResult {
         if (this.dst == null) {
             std.debug.assert(this.dst_range == null);
-            return this.std_offset;
+            return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
         }
         if (this.dst_range) |range| {
             const utc_year = secs_to_year(utc);
@@ -195,19 +206,19 @@ pub const PosixTZ = struct {
             const end_dst = range.end.toSecs(utc_year);
             if (start_dst < end_dst) {
                 if (utc >= start_dst and utc < end_dst) {
-                    return this.dst_offset;
+                    return .{ .offset = this.dst_offset, .designation = this.dst.?, .dst = true };
                 } else {
-                    return this.std_offset;
+                    return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
                 }
             } else {
                 if (utc >= end_dst and utc < start_dst) {
-                    return this.dst_offset;
+                    return .{ .offset = this.dst_offset, .designation = this.dst.?, .dst = true };
                 } else {
-                    return this.std_offset;
+                    return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
                 }
             }
         } else {
-            return this.std_offset;
+            return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
         }
     }
 };
@@ -401,7 +412,7 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
     const time: u16 = if (std.mem.indexOf(u8, string, "/")) |start_of_time| parse_time: {
         var _i: usize = 0;
         // This is ugly, should stick with one unit or the other for hhmmss offsets
-        const time = @intCast(u16, try hhmmss_offset_to_s(string[start_of_time + 1..], &_i));
+        const time = @intCast(u16, try hhmmss_offset_to_s(string[start_of_time + 1 ..], &_i));
         string = string[0..start_of_time];
         break :parse_time time;
     } else 2 * std.time.s_per_hour;
@@ -669,17 +680,17 @@ test "parse Pacific/Honolulu zoneinfo and calculate local times" {
     testing.expectEqualSlices(u8, string, res.string);
 
     {
-        const conversion = res.localTimeFromUTC(-1156939200);
+        const conversion = res.localTimeFromUTC(-1156939200).?;
         testing.expectEqual(@as(i64, -1156973400), conversion.timestamp);
         testing.expectEqual(true, conversion.dst);
         testing.expectEqualSlices(u8, "HDT", conversion.designation);
     }
-    //{
-    //    const conversion = res.localTimeFromUTC(1546300800);
-    //    testing.expectEqual(@as(i64, 1546264800), conversion.timestamp);
-    //    testing.expectEqual(false, conversion.dst);
-    //    testing.expectEqualSlices(u8, "HST", conversion.designation);
-    //}
+    {
+        const conversion = res.localTimeFromUTC(1546300800).?;
+        testing.expectEqual(@as(i64, 1546300800) - 10 * std.time.s_per_hour, conversion.timestamp);
+        testing.expectEqual(false, conversion.dst);
+        testing.expectEqualSlices(u8, "HST", conversion.designation);
+    }
 }
 
 test "posix TZ string" {
@@ -692,10 +703,10 @@ test "posix TZ string" {
     testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 3, .n = 2, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
     testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 11, .n = 1, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.end);
 
-    testing.expectEqual(@as(i32, 25200), result.offset(1612734960));
-    testing.expectEqual(@as(i32, 25200), result.offset(1615712399 - 7 * std.time.s_per_hour));
-    testing.expectEqual(@as(i32, 28800), result.offset(1615712400 - 7 * std.time.s_per_hour));
-    testing.expectEqual(@as(i32, 28800), result.offset(1620453601));
-    testing.expectEqual(@as(i32, 28800), result.offset(1636275599 - 7 * std.time.s_per_hour));
-    testing.expectEqual(@as(i32, 25200), result.offset(1636275600 - 7 * std.time.s_per_hour));
+    testing.expectEqual(@as(i32, 25200), result.offset(1612734960).offset);
+    testing.expectEqual(@as(i32, 25200), result.offset(1615712399 - 7 * std.time.s_per_hour).offset);
+    testing.expectEqual(@as(i32, 28800), result.offset(1615712400 - 7 * std.time.s_per_hour).offset);
+    testing.expectEqual(@as(i32, 28800), result.offset(1620453601).offset);
+    testing.expectEqual(@as(i32, 28800), result.offset(1636275599 - 7 * std.time.s_per_hour).offset);
+    testing.expectEqual(@as(i32, 25200), result.offset(1636275600 - 7 * std.time.s_per_hour).offset);
 }
