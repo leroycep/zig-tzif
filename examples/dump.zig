@@ -1,14 +1,22 @@
 const std = @import("std");
 const tzif = @import("tzif");
 
-pub fn main() !void {
+pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = &gpa.allocator;
 
+    const args = try std.process.argsAlloc(allocator);
+    defer allocator.free(args);
+
+    if (args.len != 2) {
+        std.log.err("Path to TZif file is required", .{});
+        return 1;
+    }
+
     const cwd = std.fs.cwd();
 
-    const localtime_file = try cwd.openFile("/etc/localtime", .{});
+    const localtime_file = try cwd.openFile(args[1], .{});
     const localtime = try tzif.parse(allocator, localtime_file.reader(), localtime_file.seekableStream());
     defer localtime.deinit();
 
@@ -16,4 +24,6 @@ pub fn main() !void {
     std.log.info("TZif version: {s}", .{localtime.version.string()});
     std.log.info("{} transition times", .{localtime.transitionTimes.len});
     std.log.info("{} leap seconds", .{localtime.leapSeconds.len});
+
+    return 0;
 }

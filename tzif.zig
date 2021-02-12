@@ -1,6 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
+const log = std.log.scoped(.tzif);
+
 pub const TimeZone = struct {
     allocator: *std.mem.Allocator,
     version: Version,
@@ -335,6 +337,7 @@ pub fn parseHeader(reader: anytype, seekableStream: anytype) !TZifHeader {
     var magic_buf: [4]u8 = undefined;
     try reader.readNoEof(&magic_buf);
     if (!std.mem.eql(u8, "TZif", &magic_buf)) {
+        log.warn("File is missing magic string 'TZif'", .{});
         return error.InvalidFormat;
     }
 
@@ -387,7 +390,10 @@ fn hhmmss_offset_to_s(_string: []const u8, idx: *usize) !i32 {
     var segment_iter = std.mem.split(string, ":");
     const hour_string = segment_iter.next() orelse return error.EmptyString;
     const hours = try std.fmt.parseInt(u32, hour_string, 10);
-    if (hours > 24) return error.InvalidFormat;
+    if (hours > 167) {
+        log.warn("too many hours! {}", .{hours});
+        return error.InvalidFormat;
+    }
     result += std.time.s_per_hour * @intCast(i32, hours);
 
     if (segment_iter.next()) |minute_string| {
@@ -445,17 +451,27 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
     }
 }
 
+fn parsePosixTZ_designation(string: []const u8, idx: *usize) ![]const u8 {
+    var quoted = string[idx.*] == '<';
+    if (quoted) idx.* += 1;
+    var start = idx.*;
+    while (idx.* < string.len) : (idx.* += 1) {
+        if ((quoted and string[idx.*] == '>') or
+            (!quoted and !std.ascii.isAlpha(string[idx.*])))
+        {
+            const designation = string[start..idx.*];
+            if (quoted) idx.* += 1;
+            return designation;
+        }
+    }
+    return error.InvalidFormat;
+}
+
 pub fn parsePosixTZ(string: []const u8) !PosixTZ {
     var result = PosixTZ{ .std = undefined, .std_offset = undefined };
     var idx: usize = 0;
 
-    // TODO: handle quoted designations
-    while (idx < string.len) : (idx += 1) {
-        if (!std.ascii.isAlpha(string[idx])) {
-            result.std = string[0..idx];
-            break;
-        }
-    }
+    result.std = try parsePosixTZ_designation(string, &idx);
 
     result.std_offset = try hhmmss_offset_to_s(string[idx..], &idx);
     if (idx >= string.len) {
@@ -463,14 +479,8 @@ pub fn parsePosixTZ(string: []const u8) !PosixTZ {
     }
 
     if (string[idx] != ',') {
-        // TODO: handle quoted designations
-        const start_dst_designation = idx;
-        while (idx < string.len) : (idx += 1) {
-            if (!std.ascii.isAlpha(string[idx])) {
-                result.dst = string[start_dst_designation..idx];
-                break;
-            }
-        }
+        result.dst = try parsePosixTZ_designation(string, &idx);
+
         if (idx < string.len and string[idx] != ',') {
             result.dst_offset = try hhmmss_offset_to_s(string[idx..], &idx);
         } else {
@@ -568,11 +578,15 @@ pub fn parse(allocator: *std.mem.Allocator, reader: anytype, seekableStream: any
             }
 
             leap_seconds[i].corr = try reader.readInt(i32, .Big);
-            if (i == 0 and (leap_seconds[i].corr != 1 or leap_seconds[i].corr != -1)) {
+            if (i == 0 and (leap_seconds[0].corr != 1 and leap_seconds[0].corr != -1)) {
+                log.warn("First leap second correction is not 1 or -1: {}", .{leap_seconds[0]});
                 return error.InvalidFormat;
-            } else {
+            } else if (i != 0) {
                 const diff = leap_seconds[i].corr - leap_seconds[i - 1].corr;
-                if (diff != 1 or diff != -1) return error.InvalidFormat;
+                if (diff != 1 and diff != -1) {
+                    log.warn("Too large of a difference between leap seconds: {}", .{diff});
+                    return error.InvalidFormat;
+                }
             }
         }
     }

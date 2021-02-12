@@ -26,6 +26,9 @@ pub fn build(b: *Builder) void {
         exe.setTarget(target);
 
         const run_example = exe.run();
+        if (b.args) |args| {
+            run_example.addArgs(args);
+        }
 
         const run_example_step = b.step("example-" ++ example.name, "Run the `" ++ example.name ++ "` example");
         run_example_step.dependOn(&run_example.step);

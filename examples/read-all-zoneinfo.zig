@@ -16,6 +16,7 @@ pub fn main() !void {
     while (try walker.next()) |entry| {
         if (entry.kind == .File) {
             const file = try entry.dir.openFile(entry.basename, .{});
+            defer file.close();
             if (tzif.parse(allocator, file.reader(), file.seekableStream())) |timezone| {
                 defer timezone.deinit();
                 successful_parse += 1;
