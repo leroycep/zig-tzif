@@ -52,6 +52,14 @@ pub const Version = enum(u8) {
     pub fn leapSize(this: @This()) u32 {
         return this.timeSize() + 4;
     }
+    
+    pub fn string(this: @This()) []const u8 {
+        return switch (this) {
+            .V1 => "1",
+            .V2 => "2",
+            .V3 => "3",
+        };
+    }
 };
 
 const TIME_TYPE_SIZE = 6;
