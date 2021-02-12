@@ -35,8 +35,8 @@ If you are using [zigmod][], you can add it to your deps like so:
 
 ```yaml
 deps:
-    - type: git
-      path: https://github.com/leroycep/zig-tzif.git
+- type: git
+  path: https://github.com/leroycep/zig-tzif.git
 ```
 
 [zigmod]: https://github.com/nektro/zigmod
