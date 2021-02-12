@@ -1,6 +1,7 @@
 const Builder = @import("std").build.Builder;
 
 const EXAMPLES = [_]@import("std").build.Pkg{
+    .{ .name = "localtime", .path = "examples/localtime.zig" },
     .{ .name = "dump", .path = "examples/dump.zig" },
     .{ .name = "read-all-zoneinfo", .path = "examples/read-all-zoneinfo.zig" },
 };
