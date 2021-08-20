@@ -1,9 +1,9 @@
 const Builder = @import("std").build.Builder;
 
 const EXAMPLES = [_]@import("std").build.Pkg{
-    .{ .name = "localtime", .path = "examples/localtime.zig" },
-    .{ .name = "dump", .path = "examples/dump.zig" },
-    .{ .name = "read-all-zoneinfo", .path = "examples/read-all-zoneinfo.zig" },
+    .{ .name = "localtime", .path = .{ .path = "examples/localtime.zig" } },
+    .{ .name = "dump", .path = .{ .path = "examples/dump.zig" } },
+    .{ .name = "read-all-zoneinfo", .path = .{ .path = "examples/read-all-zoneinfo.zig" } },
 };
 
 pub fn build(b: *Builder) void {
@@ -21,7 +21,7 @@ pub fn build(b: *Builder) void {
     const target = b.standardTargetOptions(.{});
 
     inline for (EXAMPLES) |example| {
-        const exe = b.addExecutable(example.name, example.path);
+        const exe = b.addExecutableSource(example.name, example.path);
         exe.addPackagePath("tzif", "tzif.zig");
         exe.setBuildMode(mode);
         exe.setTarget(target);
