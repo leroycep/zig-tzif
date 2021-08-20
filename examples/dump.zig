@@ -14,8 +14,6 @@ pub fn main() !u8 {
         return 1;
     }
 
-    const cwd = std.fs.cwd();
-
     const localtime = try tzif.parseFile(allocator, args[1]);
     defer localtime.deinit();
 
