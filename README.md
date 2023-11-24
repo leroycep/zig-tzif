@@ -14,32 +14,49 @@ recommend starting with the [localtime][] example.
 
 ### Add it as a package
 
-To start, copy `tzif.zig` to your repository and add it as a package in your
-build.zig:
+To start, add zig-tzif to your `build.zig.zon`:
 
 ```zig
-const Builder = @import("std").build.Builder;
-
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-    const target = b.standardTargetOptions(.{});
-
-    const exe = b.addExecutable("example", "src/main.zig");
-    exe.addPackagePath("tzif", "tzif.zig");
-    exe.setBuildMode(mode);
-    exe.setTarget(target);
+.{
+    .name = "your-project",
+    .version = "0.1.0",
+    .dependencies = .{
+        .tzif = .{
+            .url = "https://github.com/leroycep/zig-tzif/archive/592fbab32cf39e6de332277fc93f9a5bb53a4791.tar.gz",
+        },
+    },
 }
 ```
 
-If you are using [zigmod][], you can add it to your deps like so:
+Then, add `zig-tzif` to executable (or library) in the `build.zig`:
 
-```yaml
-deps:
-- type: git
-  path: https://github.com/leroycep/zig-tzif.git
+```zig
+const Build = @import("std").Build;
+
+pub fn build(b: *Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    // Get the tzif dependency
+    const tzif = b.dependency("tzif", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "tzif",
+        .root_source_file = .{ .path = "tzif.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Add it as a module
+    exe.addModule("tzif", tzif.module("tzif"));
+
+    b.installArtifact(exe);
+}
+
 ```
-
-[zigmod]: https://github.com/nektro/zigmod
 
 ### Useful functions
 
