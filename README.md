@@ -22,7 +22,8 @@ To start, add zig-tzif to your `build.zig.zon`:
     .version = "0.1.0",
     .dependencies = .{
         .tzif = .{
-            .url = "https://github.com/leroycep/zig-tzif/archive/592fbab32cf39e6de332277fc93f9a5bb53a4791.tar.gz",
+            .url = "https://github.com/leroycep/zig-tzif/archive/83b656b00a8194dd5e8e971cfab0fbef2177dafa.tar.gz",
+            .hash = "12202279470293f0dd5f08df62d76910136f3fc1aeb1970bbbb2dd65124a62f81271",
         },
     },
 }
