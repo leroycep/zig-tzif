@@ -4,10 +4,10 @@ const tzif = @import("tzif");
 pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = &gpa.allocator;
+    const allocator = gpa.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    defer allocator.free(args);
+    defer std.process.argsFree(allocator, args);
 
     if (args.len != 2) {
         std.log.err("Path to TZif file is required", .{});

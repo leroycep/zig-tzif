@@ -4,7 +4,7 @@ const tzif = @import("tzif");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = &gpa.allocator;
+    const allocator = gpa.allocator();
 
     var successful_parse: usize = 0;
     var successful_convert: usize = 0;
@@ -12,13 +12,13 @@ pub fn main() !void {
     var failed_convert: usize = 0;
 
     const cwd = std.fs.cwd();
-    const zoneinfo = try cwd.openDir("/usr/share/zoneinfo", .{ .iterate = true });
+    const zoneinfo = try cwd.openIterableDir("/usr/share/zoneinfo", .{});
 
     var walker = try zoneinfo.walk(allocator);
     defer walker.deinit();
     while (try walker.next()) |entry| {
-        if (entry.kind == .File) {
-            const file = try zoneinfo.openFile(entry.path, .{});
+        if (entry.kind == .file) {
+            const file = try zoneinfo.dir.openFile(entry.path, .{});
             defer file.close();
 
             if (tzif.parse(allocator, file.reader(), file.seekableStream())) |timezone| {

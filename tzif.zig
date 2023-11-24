@@ -643,7 +643,7 @@ pub fn parse(allocator: std.mem.Allocator, reader: anytype, seekableStream: anyt
     };
 }
 
-pub fn parseFile(allocator: *std.mem.Allocator, path: []const u8) !TimeZone {
+pub fn parseFile(allocator: std.mem.Allocator, path: []const u8) !TimeZone {
     const cwd = std.fs.cwd();
 
     const file = try cwd.openFile(path, .{});
