@@ -4,7 +4,7 @@ const testing = std.testing;
 const log = std.log.scoped(.tzif);
 
 pub const TimeZone = struct {
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
     version: Version,
     transitionTimes: []i64,
     transitionTypes: []u8,
@@ -70,7 +70,7 @@ pub const TimeZone = struct {
             const local_time_type = this.localTimeTypes[transition_type];
 
             var designation = this.designations[local_time_type.idx .. this.designations.len - 1];
-            for (designation) |c, i| {
+            for (designation, 0..) |c, i| {
                 if (c == 0) {
                     designation = designation[0..i];
                     break;
@@ -227,9 +227,9 @@ pub const PosixTZ = struct {
 
 fn days_in_month(m: u8, is_leap: bool) i32 {
     if (m == 2) {
-        return 28 + @as(i32, @boolToInt(is_leap));
+        return 28 + @as(i32, @intFromBool(is_leap));
     } else {
-        return 30 + ((@as(i32, 0xad5) >> @intCast(u5, m - 1)) & 1);
+        return 30 + ((@as(i32, 0xad5) >> @as(u5, @intCast(m - 1))) & 1);
     }
 }
 
@@ -249,7 +249,7 @@ fn secs_to_year(secs: i64) i32 {
     // Copied from MUSL
     // TODO: make more efficient?
     var _is_leap: bool = undefined;
-    var y = @intCast(i32, @divFloor(secs, 31556952) + 70);
+    var y = @as(i32, @intCast(@divFloor(secs, 31556952) + 70));
     while (year_to_secs(y, &_is_leap) > secs) y -= 1;
     while (year_to_secs(y + 1, &_is_leap) < secs) y += 1;
     return y;
@@ -306,7 +306,7 @@ fn year_to_secs(year: i32, is_leap: *bool) i64 {
         }
     }
 
-    leaps += 97 * cycles + 24 * centuries - @boolToInt(is_leap.*);
+    leaps += 97 * cycles + 24 * centuries - @intFromBool(is_leap.*);
 
     return (year - 100) * 31536000 + leaps * std.time.s_per_day + 946684800 + std.time.s_per_day;
 }
@@ -337,8 +337,7 @@ pub fn parseHeader(reader: anytype, seekableStream: anytype) !TZifHeader {
     var magic_buf: [4]u8 = undefined;
     try reader.readNoEof(&magic_buf);
     if (!std.mem.eql(u8, "TZif", &magic_buf)) {
-        log.warn("File is missing magic string 'TZif'", .{});
-        return error.InvalidFormat;
+        return error.InvalidFormat; // Magic number "TZif" is missing
     }
 
     // Check verison
@@ -377,7 +376,7 @@ fn hhmmss_offset_to_s(_string: []const u8, idx: *usize) !i32 {
         idx.* += 1;
     }
 
-    for (string) |c, i| {
+    for (string, 0..) |c, i| {
         if (!(std.ascii.isDigit(c) or c == ':')) {
             string = string[0..i];
             break;
@@ -394,12 +393,12 @@ fn hhmmss_offset_to_s(_string: []const u8, idx: *usize) !i32 {
         log.warn("too many hours! {}", .{hours});
         return error.InvalidFormat;
     }
-    result += std.time.s_per_hour * @intCast(i32, hours);
+    result += std.time.s_per_hour * @as(i32, @intCast(hours));
 
     if (segment_iter.next()) |minute_string| {
         const minutes = try std.fmt.parseInt(u32, minute_string, 10);
         if (minutes > 59) return error.InvalidFormat;
-        result += std.time.s_per_min * @intCast(i32, minutes);
+        result += std.time.s_per_min * @as(i32, @intCast(minutes));
     }
 
     if (segment_iter.next()) |second_string| {
@@ -457,7 +456,7 @@ fn parsePosixTZ_designation(string: []const u8, idx: *usize) ![]const u8 {
     var start = idx.*;
     while (idx.* < string.len) : (idx.* += 1) {
         if ((quoted and string[idx.*] == '>') or
-            (!quoted and !std.ascii.isAlpha(string[idx.*])))
+            (!quoted and !std.ascii.isAlphabetic(string[idx.*])))
         {
             const designation = string[start..idx.*];
             if (quoted) idx.* += 1;
@@ -508,7 +507,7 @@ pub fn parsePosixTZ(string: []const u8) !PosixTZ {
     return result;
 }
 
-pub fn parse(allocator: *std.mem.Allocator, reader: anytype, seekableStream: anytype) !TimeZone {
+pub fn parse(allocator: std.mem.Allocator, reader: anytype, seekableStream: anytype) !TimeZone {
     const v1_header = try parseHeader(reader, seekableStream);
     try seekableStream.seekBy(v1_header.dataSize(.V1));
 

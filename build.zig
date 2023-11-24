@@ -1,32 +1,52 @@
-const Builder = @import("std").build.Builder;
+const Build = @import("std").Build;
 
-const EXAMPLES = [_]@import("std").build.Pkg{
-    .{ .name = "localtime", .path = .{ .path = "examples/localtime.zig" } },
-    .{ .name = "dump", .path = .{ .path = "examples/dump.zig" } },
-    .{ .name = "read-all-zoneinfo", .path = .{ .path = "examples/read-all-zoneinfo.zig" } },
+const Example = struct {
+    name: []const u8,
+    path: []const u8,
 };
 
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-    const lib = b.addStaticLibrary("tzif", "tzif.zig");
-    lib.setBuildMode(mode);
-    lib.install();
+const EXAMPLES = [_]Example{
+    .{ .name = "localtime", .path = "examples/localtime.zig" },
+    .{ .name = "dump", .path = "examples/dump.zig" },
+    .{ .name = "read-all-zoneinfo", .path = "examples/read-all-zoneinfo.zig" },
+};
 
-    var main_tests = b.addTest("tzif.zig");
-    main_tests.setBuildMode(mode);
-
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&main_tests.step);
-
+pub fn build(b: *Build) void {
+    const optimize = b.standardOptimizeOption(.{});
     const target = b.standardTargetOptions(.{});
 
-    inline for (EXAMPLES) |example| {
-        const exe = b.addExecutableSource(example.name, example.path);
-        exe.addPackagePath("tzif", "tzif.zig");
-        exe.setBuildMode(mode);
-        exe.setTarget(target);
+    const module = b.addModule("tzif", .{
+        .source_file = .{ .path = "tzif.zig" },
+    });
 
-        const run_example = exe.run();
+    const lib = b.addStaticLibrary(.{
+        .name = "tzif",
+        .root_source_file = .{ .path = "tzif.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(lib);
+
+    var main_tests = b.addTest(.{
+        .root_source_file = .{ .path = "tzif.zig" },
+        .optimize = optimize,
+    });
+
+    const run_main_tests = b.addRunArtifact(main_tests);
+
+    const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&run_main_tests.step);
+
+    inline for (EXAMPLES) |example| {
+        const exe = b.addExecutable(.{
+            .name = example.name,
+            .root_source_file = .{ .path = example.path },
+            .optimize = optimize,
+            .target = target,
+        });
+        exe.addModule("tzif", module);
+
+        const run_example = b.addRunArtifact(exe);
         if (b.args) |args| {
             run_example.addArgs(args);
         }
