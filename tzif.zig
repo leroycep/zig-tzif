@@ -27,73 +27,88 @@ pub const TimeZone = struct {
         this.allocator.free(this.string);
     }
 
-    fn findTransitionTime(this: @This(), utc: i64) ?usize {
-        var left: usize = 0;
-        var right: usize = this.transitionTimes.len;
-
-        while (left < right) {
-            // Avoid overflowing in the midpoint calculation
-            const mid = left + (right - left) / 2;
-            // Compare the key with the midpoint element
-            if (this.transitionTimes[mid] == utc) {
-                if (mid + 1 < this.transitionTimes.len) {
-                    return mid;
-                } else {
-                    return null;
-                }
-            } else if (this.transitionTimes[mid] > utc) {
-                right = mid;
-            } else if (this.transitionTimes[mid] < utc) {
-                left = mid + 1;
-            }
-        }
-
-        if (right == this.transitionTimes.len) {
-            return null;
-        } else if (right > 0) {
-            return right - 1;
-        } else {
-            return 0;
-        }
-    }
-
     pub const ConversionResult = struct {
         timestamp: i64,
         offset: i32,
-        dst: bool,
+        is_daylight_saving_time: bool,
         designation: []const u8,
     };
 
     pub fn localTimeFromUTC(this: @This(), utc: i64) ?ConversionResult {
-        if (this.findTransitionTime(utc)) |idx| {
-            const transition_type = this.transitionTypes[idx];
-            const local_time_type = this.localTimeTypes[transition_type];
+        const transition_type_by_timestamp = getTransitionTypeByTimestamp(this.transitionTimes, utc);
+        switch (transition_type_by_timestamp) {
+            .first_local_time_type => {
+                const local_time_type = this.localTimeTypes[0];
 
-            var designation = this.designations[local_time_type.idx .. this.designations.len - 1];
-            for (designation, 0..) |c, i| {
-                if (c == 0) {
-                    designation = designation[0..i];
-                    break;
+                var designation = this.designations[local_time_type.designation_index .. this.designations.len - 1];
+                for (designation, 0..) |c, i| {
+                    if (c == 0) {
+                        designation = designation[0..i];
+                        break;
+                    }
                 }
-            }
 
-            return ConversionResult{
-                .timestamp = utc + local_time_type.utoff,
-                .offset = local_time_type.utoff,
-                .dst = local_time_type.dst,
-                .designation = designation,
-            };
-        } else if (this.posixTZ) |posixTZ| {
-            // Base offset on the TZ string
-            const offset_res = posixTZ.offset(utc);
-            return ConversionResult{
-                .timestamp = utc - offset_res.offset,
-                .offset = offset_res.offset,
-                .dst = offset_res.dst,
-                .designation = offset_res.designation,
-            };
-        } else {
-            return null;
+                return ConversionResult{
+                    .timestamp = utc + local_time_type.ut_offset,
+                    .offset = local_time_type.ut_offset,
+                    .is_daylight_saving_time = local_time_type.is_daylight_saving_time,
+                    .designation = designation,
+                };
+            },
+            .transition_index => |transition_index| {
+                const local_time_type_idx = this.transitionTypes[transition_index];
+                const local_time_type = this.localTimeTypes[local_time_type_idx];
+
+                var designation = this.designations[local_time_type.designation_index .. this.designations.len - 1];
+                for (designation, 0..) |c, i| {
+                    if (c == 0) {
+                        designation = designation[0..i];
+                        break;
+                    }
+                }
+
+                return ConversionResult{
+                    .timestamp = utc + local_time_type.ut_offset,
+                    .offset = local_time_type.ut_offset,
+                    .is_daylight_saving_time = local_time_type.is_daylight_saving_time,
+                    .designation = designation,
+                };
+            },
+            .specified_by_posix_tz,
+            .specified_by_posix_tz_or_index_0,
+            => if (this.posixTZ) |posixTZ| {
+                // Base offset on the TZ string
+                const offset_res = posixTZ.offset(utc);
+                return ConversionResult{
+                    .timestamp = utc - offset_res.offset,
+                    .offset = offset_res.offset,
+                    .is_daylight_saving_time = offset_res.is_daylight_saving_time,
+                    .designation = offset_res.designation,
+                };
+            } else {
+                switch (transition_type_by_timestamp) {
+                    .specified_by_posix_tz => return null,
+                    .specified_by_posix_tz_or_index_0 => {
+                        const local_time_type = this.localTimeTypes[0];
+
+                        var designation = this.designations[local_time_type.designation_index .. this.designations.len - 1];
+                        for (designation, 0..) |c, i| {
+                            if (c == 0) {
+                                designation = designation[0..i];
+                                break;
+                            }
+                        }
+
+                        return ConversionResult{
+                            .timestamp = utc + local_time_type.ut_offset,
+                            .offset = local_time_type.ut_offset,
+                            .is_daylight_saving_time = local_time_type.is_daylight_saving_time,
+                            .designation = designation,
+                        };
+                    },
+                    else => unreachable,
+                }
+            },
         }
     }
 };
@@ -124,10 +139,29 @@ pub const Version = enum(u8) {
 };
 
 pub const LocalTimeType = struct {
-    utoff: i32,
-    /// Indicates whether this local time is Daylight Saving Time
-    dst: bool,
-    idx: u8,
+    /// An i32 specifying the number of seconds to be added to UT in order to determine local time.
+    /// The value MUST NOT be -2**31 and SHOULD be in the range
+    /// [-89999, 93599] (i.e., its value SHOULD be more than -25 hours
+    /// and less than 26 hours).  Avoiding -2**31 allows 32-bit clients
+    /// to negate the value without overflow.  Restricting it to
+    /// [-89999, 93599] allows easy support by implementations that
+    /// already support the POSIX-required range [-24:59:59, 25:59:59].
+    ut_offset: i32,
+
+    /// A value indicating whether local time should be considered Daylight Saving Time (DST).
+    ///
+    /// A value of `true` indicates that this type of time is DST.
+    /// A value of `false` indicates that this time type is standard time.
+    is_daylight_saving_time: bool,
+
+    /// A u8 specifying an index into the time zone designations, thereby
+    /// selecting a particular designation string. Each index MUST be
+    /// in the range [0, "charcnt" - 1]; it designates the
+    /// NUL-terminated string of octets starting at position `designation_index` in
+    /// the time zone designations.  (This string MAY be empty.)  A NUL
+    /// octet MUST exist in the time zone designations at or after
+    /// position `designation_index`.
+    designation_index: u8,
 };
 
 pub const LeapSecond = struct {
@@ -137,9 +171,9 @@ pub const LeapSecond = struct {
 
 /// This is based on Posix definition of the TZ environment variable
 pub const PosixTZ = struct {
-    std: []const u8,
+    std_designation: []const u8,
     std_offset: i32,
-    dst: ?[]const u8 = null,
+    dst_designation: ?[]const u8 = null,
     /// This field is ignored when dst is null
     dst_offset: i32 = 0,
     dst_range: ?struct {
@@ -194,33 +228,33 @@ pub const PosixTZ = struct {
     pub const OffsetResult = struct {
         offset: i32,
         designation: []const u8,
-        dst: bool,
+        is_daylight_saving_time: bool,
     };
 
     pub fn offset(this: @This(), utc: i64) OffsetResult {
-        if (this.dst == null) {
+        const dst_designation = this.dst_designation orelse {
             std.debug.assert(this.dst_range == null);
-            return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
-        }
+            return .{ .offset = this.std_offset, .designation = this.std_designation, .is_daylight_saving_time = false };
+        };
         if (this.dst_range) |range| {
             const utc_year = secs_to_year(utc);
             const start_dst = range.start.toSecs(utc_year);
             const end_dst = range.end.toSecs(utc_year);
             if (start_dst < end_dst) {
                 if (utc >= start_dst and utc < end_dst) {
-                    return .{ .offset = this.dst_offset, .designation = this.dst.?, .dst = true };
+                    return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
                 } else {
-                    return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
+                    return .{ .offset = this.std_offset, .designation = this.std_designation, .is_daylight_saving_time = false };
                 }
             } else {
                 if (utc >= end_dst and utc < start_dst) {
-                    return .{ .offset = this.dst_offset, .designation = this.dst.?, .dst = true };
+                    return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
                 } else {
-                    return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
+                    return .{ .offset = this.std_offset, .designation = this.std_designation, .is_daylight_saving_time = false };
                 }
             }
         } else {
-            return .{ .offset = this.std_offset, .designation = this.std, .dst = false };
+            return .{ .offset = this.std_offset, .designation = this.std_designation, .is_daylight_saving_time = false };
         }
     }
 };
@@ -467,10 +501,10 @@ fn parsePosixTZ_designation(string: []const u8, idx: *usize) ![]const u8 {
 }
 
 pub fn parsePosixTZ(string: []const u8) !PosixTZ {
-    var result = PosixTZ{ .std = undefined, .std_offset = undefined };
+    var result = PosixTZ{ .std_designation = undefined, .std_offset = undefined };
     var idx: usize = 0;
 
-    result.std = try parsePosixTZ_designation(string, &idx);
+    result.std_designation = try parsePosixTZ_designation(string, &idx);
 
     result.std_offset = try hhmmss_offset_to_s(string[idx..], &idx);
     if (idx >= string.len) {
@@ -478,7 +512,7 @@ pub fn parsePosixTZ(string: []const u8) !PosixTZ {
     }
 
     if (string[idx] != ',') {
-        result.dst = try parsePosixTZ_designation(string, &idx);
+        result.dst_designation = try parsePosixTZ_designation(string, &idx);
 
         if (idx < string.len and string[idx] != ',') {
             result.dst_offset = try hhmmss_offset_to_s(string[idx..], &idx);
@@ -544,15 +578,15 @@ pub fn parse(allocator: std.mem.Allocator, reader: anytype, seekableStream: anyt
     {
         var i: usize = 0;
         while (i < local_time_types.len) : (i += 1) {
-            local_time_types[i].utoff = try reader.readInt(i32, .Big);
-            local_time_types[i].dst = switch (try reader.readByte()) {
+            local_time_types[i].ut_offset = try reader.readInt(i32, .Big);
+            local_time_types[i].is_daylight_saving_time = switch (try reader.readByte()) {
                 0 => false,
                 1 => true,
                 else => return error.InvalidFormat,
             };
 
-            local_time_types[i].idx = try reader.readByte();
-            if (local_time_types[i].idx >= v2_header.charcnt) {
+            local_time_types[i].designation_index = try reader.readByte();
+            if (local_time_types[i].designation_index >= v2_header.charcnt) {
                 return error.InvalidFormat;
             }
         }
@@ -652,6 +686,90 @@ pub fn parseFile(allocator: std.mem.Allocator, path: []const u8) !TimeZone {
     return parse(allocator, file.reader(), file.seekableStream());
 }
 
+const TransitionType = union(enum) {
+    first_local_time_type,
+    transition_index: usize,
+    specified_by_posix_tz,
+    specified_by_posix_tz_or_index_0,
+};
+
+/// Get the transition type of the first element in the `transition_times` array which is less than or equal to `timestamp_utc`.
+///
+/// Returns `.transition_index` if the timestamp is contained inside the `transition_times` array.
+///
+/// Returns `.specified_by_posix_tz_or_index_0` if the `transition_times` list is empty.
+///
+/// Returns `.first_local_time_type` if `timestamp_utc` is before the first transition time.
+///
+/// Returns `.specified_by_posix_tz` if `timestamp_utc` is after or on the last transition time.
+fn getTransitionTypeByTimestamp(transition_times: []const i64, timestamp_utc: i64) TransitionType {
+    if (transition_times.len == 0) return .specified_by_posix_tz_or_index_0;
+    if (timestamp_utc < transition_times[0]) return .first_local_time_type;
+    if (timestamp_utc >= transition_times[transition_times.len - 1]) return .specified_by_posix_tz;
+
+    var left: usize = 0;
+    var right: usize = transition_times.len;
+
+    while (left < right) {
+        // Avoid overflowing in the midpoint calculation
+        const mid = left + (right - left) / 2;
+        // Compare the key with the midpoint element
+        if (transition_times[mid] == timestamp_utc) {
+            if (mid + 1 < transition_times.len) {
+                return .{ .transition_index = mid };
+            } else {
+                return .{ .transition_index = mid };
+            }
+        } else if (transition_times[mid] > timestamp_utc) {
+            right = mid;
+        } else if (transition_times[mid] < timestamp_utc) {
+            left = mid + 1;
+        }
+    }
+
+    // std.debug.print("{s}:{} right = {}\n", .{ @src().file, @src().line, right });
+    if (right >= transition_times.len) {
+        return .specified_by_posix_tz;
+    } else if (right > 0) {
+        return .{ .transition_index = right - 1 };
+    } else {
+        return .first_local_time_type;
+    }
+}
+
+test getTransitionTypeByTimestamp {
+    const transition_times = [7]i64{ -2334101314, -1157283000, -1155436200, -880198200, -769395600, -765376200, -712150200 };
+
+    try testing.expectEqual(TransitionType.first_local_time_type, getTransitionTypeByTimestamp(&transition_times, -2334101315));
+    try testing.expectEqual(TransitionType{ .transition_index = 0 }, getTransitionTypeByTimestamp(&transition_times, -2334101314));
+    try testing.expectEqual(TransitionType{ .transition_index = 0 }, getTransitionTypeByTimestamp(&transition_times, -2334101313));
+
+    try testing.expectEqual(TransitionType{ .transition_index = 0 }, getTransitionTypeByTimestamp(&transition_times, -1157283001));
+    try testing.expectEqual(TransitionType{ .transition_index = 1 }, getTransitionTypeByTimestamp(&transition_times, -1157283000));
+    try testing.expectEqual(TransitionType{ .transition_index = 1 }, getTransitionTypeByTimestamp(&transition_times, -1157282999));
+
+    try testing.expectEqual(TransitionType{ .transition_index = 1 }, getTransitionTypeByTimestamp(&transition_times, -1155436201));
+    try testing.expectEqual(TransitionType{ .transition_index = 2 }, getTransitionTypeByTimestamp(&transition_times, -1155436200));
+    try testing.expectEqual(TransitionType{ .transition_index = 2 }, getTransitionTypeByTimestamp(&transition_times, -1155436199));
+
+    try testing.expectEqual(TransitionType{ .transition_index = 2 }, getTransitionTypeByTimestamp(&transition_times, -880198201));
+    try testing.expectEqual(TransitionType{ .transition_index = 3 }, getTransitionTypeByTimestamp(&transition_times, -880198200));
+    try testing.expectEqual(TransitionType{ .transition_index = 3 }, getTransitionTypeByTimestamp(&transition_times, -880198199));
+
+    try testing.expectEqual(TransitionType{ .transition_index = 3 }, getTransitionTypeByTimestamp(&transition_times, -769395601));
+    try testing.expectEqual(TransitionType{ .transition_index = 4 }, getTransitionTypeByTimestamp(&transition_times, -769395600));
+    try testing.expectEqual(TransitionType{ .transition_index = 4 }, getTransitionTypeByTimestamp(&transition_times, -769395599));
+
+    try testing.expectEqual(TransitionType{ .transition_index = 4 }, getTransitionTypeByTimestamp(&transition_times, -765376201));
+    try testing.expectEqual(TransitionType{ .transition_index = 5 }, getTransitionTypeByTimestamp(&transition_times, -765376200));
+    try testing.expectEqual(TransitionType{ .transition_index = 5 }, getTransitionTypeByTimestamp(&transition_times, -765376199));
+
+    // Why is there 7 transition types if the last type is not used?
+    try testing.expectEqual(TransitionType{ .transition_index = 5 }, getTransitionTypeByTimestamp(&transition_times, -712150201));
+    try testing.expectEqual(TransitionType.specified_by_posix_tz, getTransitionTypeByTimestamp(&transition_times, -712150200));
+    try testing.expectEqual(TransitionType.specified_by_posix_tz, getTransitionTypeByTimestamp(&transition_times, -712150199));
+}
+
 test "parse invalid bytes" {
     var fbs = std.io.fixedBufferStream("dflkasjreklnlkvnalkfek");
     try testing.expectError(error.InvalidFormat, parse(std.testing.allocator, fbs.reader(), fbs.seekableStream()));
@@ -666,7 +784,7 @@ test "parse UTC zoneinfo" {
     try testing.expectEqual(Version.V2, res.version);
     try testing.expectEqualSlices(i64, &[_]i64{}, res.transitionTimes);
     try testing.expectEqualSlices(u8, &[_]u8{}, res.transitionTypes);
-    try testing.expectEqualSlices(LocalTimeType, &[_]LocalTimeType{.{ .utoff = 0, .dst = false, .idx = 0 }}, res.localTimeTypes);
+    try testing.expectEqualSlices(LocalTimeType, &[_]LocalTimeType{.{ .ut_offset = 0, .is_daylight_saving_time = false, .designation_index = 0 }}, res.localTimeTypes);
     try testing.expectEqualSlices(u8, "UTC\x00", res.designations);
 }
 
@@ -674,12 +792,12 @@ test "parse Pacific/Honolulu zoneinfo and calculate local times" {
     const transition_times = [7]i64{ -2334101314, -1157283000, -1155436200, -880198200, -769395600, -765376200, -712150200 };
     const transition_types = [7]u8{ 1, 2, 1, 3, 4, 1, 5 };
     const local_time_types = [6]LocalTimeType{
-        .{ .utoff = -37886, .dst = false, .idx = 0 },
-        .{ .utoff = -37800, .dst = false, .idx = 4 },
-        .{ .utoff = -34200, .dst = true, .idx = 8 },
-        .{ .utoff = -34200, .dst = true, .idx = 12 },
-        .{ .utoff = -34200, .dst = true, .idx = 16 },
-        .{ .utoff = -36000, .dst = false, .idx = 4 },
+        .{ .ut_offset = -37886, .is_daylight_saving_time = false, .designation_index = 0 },
+        .{ .ut_offset = -37800, .is_daylight_saving_time = false, .designation_index = 4 },
+        .{ .ut_offset = -34200, .is_daylight_saving_time = true, .designation_index = 8 },
+        .{ .ut_offset = -34200, .is_daylight_saving_time = true, .designation_index = 12 },
+        .{ .ut_offset = -34200, .is_daylight_saving_time = true, .designation_index = 16 },
+        .{ .ut_offset = -36000, .is_daylight_saving_time = false, .designation_index = 4 },
     };
     const designations = "LMT\x00HST\x00HDT\x00HWT\x00HPT\x00";
     const is_std = &[6]bool{ false, false, false, false, true, false };
@@ -703,13 +821,36 @@ test "parse Pacific/Honolulu zoneinfo and calculate local times" {
     {
         const conversion = res.localTimeFromUTC(-1156939200).?;
         try testing.expectEqual(@as(i64, -1156973400), conversion.timestamp);
-        try testing.expectEqual(true, conversion.dst);
+        try testing.expectEqual(true, conversion.is_daylight_saving_time);
         try testing.expectEqualSlices(u8, "HDT", conversion.designation);
     }
     {
+        // A second before the first timezone transition
+        const conversion = res.localTimeFromUTC(-2334101315).?;
+        try testing.expectEqual(@as(i64, -2334101315 - 37886), conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "LMT", conversion.designation);
+    }
+    {
+        // At the first timezone transition
+        const conversion = res.localTimeFromUTC(-2334101314).?;
+        try testing.expectEqual(@as(i64, -2334101314 - 37800), conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "HST", conversion.designation);
+    }
+    {
+        // After the first timezone transition
+        const conversion = res.localTimeFromUTC(-2334101313).?;
+        try testing.expectEqual(@as(i64, -2334101313 - 37800), conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "HST", conversion.designation);
+    }
+    {
+        // After the last timezone transition; conversion should be performed using the Posix TZ footer.
+        // Taken from RFC8536 Appendix B.2
         const conversion = res.localTimeFromUTC(1546300800).?;
         try testing.expectEqual(@as(i64, 1546300800) - 10 * std.time.s_per_hour, conversion.timestamp);
-        try testing.expectEqual(false, conversion.dst);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
         try testing.expectEqualSlices(u8, "HST", conversion.designation);
     }
 }
@@ -717,9 +858,9 @@ test "parse Pacific/Honolulu zoneinfo and calculate local times" {
 test "posix TZ string" {
     const result = try parsePosixTZ("MST7MDT,M3.2.0,M11.1.0");
 
-    try testing.expectEqualSlices(u8, "MST", result.std);
+    try testing.expectEqualSlices(u8, "MST", result.std_designation);
     try testing.expectEqual(@as(i32, 25200), result.std_offset);
-    try testing.expectEqualSlices(u8, "MDT", result.dst.?);
+    try testing.expectEqualSlices(u8, "MDT", result.dst_designation.?);
     try testing.expectEqual(@as(i32, 28800), result.dst_offset);
     try testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 3, .n = 2, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
     try testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 11, .n = 1, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.end);
