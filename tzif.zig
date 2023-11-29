@@ -268,6 +268,51 @@ pub const PosixTZ = struct {
             }
             return t;
         }
+
+        pub fn format(
+            this: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = fmt;
+            _ = options;
+
+            switch (this) {
+                .JulianDay => |julian_day| {
+                    try std.fmt.format(writer, "J{}", .{julian_day.day});
+                },
+                .JulianDayZero => |julian_day_zero| {
+                    try std.fmt.format(writer, "{}", .{julian_day_zero.day});
+                },
+                .MonthNthWeekDay => |month_week_day| {
+                    try std.fmt.format(writer, "M{}.{}.{}", .{
+                        month_week_day.month,
+                        month_week_day.n,
+                        month_week_day.day,
+                    });
+                },
+            }
+
+            const time = switch (this) {
+                inline else => |rule| rule.time,
+            };
+
+            // Only write out the time if it is not the default time of 02:00
+            if (time != 2 * std.time.s_per_hour) {
+                const seconds = @mod(time, std.time.s_per_min);
+                const minutes = @mod(@divTrunc(time, std.time.s_per_min), 60);
+                const hours = @divTrunc(@divTrunc(time, std.time.s_per_min), 60);
+
+                try std.fmt.format(writer, "/{}", .{hours});
+                if (minutes != 0 or seconds != 0) {
+                    try std.fmt.format(writer, ":{}", .{minutes});
+                }
+                if (seconds != 0) {
+                    try std.fmt.format(writer, ":{}", .{seconds});
+                }
+            }
+        }
     };
 
     pub const OffsetResult = struct {
@@ -302,6 +347,109 @@ pub const PosixTZ = struct {
         } else {
             return .{ .offset = this.std_offset, .designation = this.std_designation, .is_daylight_saving_time = false };
         }
+    }
+
+    pub fn format(
+        this: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.writeAll(this.std_designation);
+
+        const std_offset_west = -this.std_offset;
+        const std_seconds = @mod(std_offset_west, std.time.s_per_min);
+        const std_minutes = @mod(@divTrunc(std_offset_west, std.time.s_per_min), 60);
+        const std_hours = @divTrunc(@divTrunc(std_offset_west, std.time.s_per_min), 60);
+
+        try std.fmt.format(writer, "{}", .{std_hours});
+        if (std_minutes != 0 or std_seconds != 0) {
+            try std.fmt.format(writer, ":{}", .{std_minutes});
+        }
+        if (std_seconds != 0) {
+            try std.fmt.format(writer, ":{}", .{std_seconds});
+        }
+
+        if (this.dst_designation) |dst_designation| {
+            try writer.writeAll(dst_designation);
+
+            // Only write out the DST offset if it is not just the standard offset plus an hour
+            if (this.dst_offset != this.std_offset + std.time.s_per_hour) {
+                const dst_offset_west = -this.dst_offset;
+                const dst_seconds = @mod(dst_offset_west, std.time.s_per_min);
+                const dst_minutes = @mod(@divTrunc(dst_offset_west, std.time.s_per_min), 60);
+                const dst_hours = @divTrunc(@divTrunc(dst_offset_west, std.time.s_per_min), 60);
+
+                try std.fmt.format(writer, "{}", .{dst_hours});
+                if (dst_minutes != 0 or dst_seconds != 0) {
+                    try std.fmt.format(writer, ":{}", .{dst_minutes});
+                }
+                if (dst_seconds != 0) {
+                    try std.fmt.format(writer, ":{}", .{dst_seconds});
+                }
+            }
+        }
+
+        if (this.dst_range) |dst_range| {
+            try std.fmt.format(writer, ",{},{}", .{ dst_range.start, dst_range.end });
+        }
+    }
+
+    test format {
+        const america_denver = PosixTZ{
+            .std_designation = "MST",
+            .std_offset = -25200,
+            .dst_designation = "MDT",
+            .dst_offset = -21600,
+            .dst_range = .{
+                .start = .{
+                    .MonthNthWeekDay = .{
+                        .month = 3,
+                        .n = 2,
+                        .day = 0,
+                        .time = 2 * std.time.s_per_hour,
+                    },
+                },
+                .end = .{
+                    .MonthNthWeekDay = .{
+                        .month = 11,
+                        .n = 1,
+                        .day = 0,
+                        .time = 2 * std.time.s_per_hour,
+                    },
+                },
+            },
+        };
+
+        try std.testing.expectFmt("MST7MDT,M3.2.0,M11.1.0", "{}", .{america_denver});
+
+        const europe_berlin = PosixTZ{
+            .std_designation = "CET",
+            .std_offset = 3600,
+            .dst_designation = "CEST",
+            .dst_offset = 7200,
+            .dst_range = .{
+                .start = .{
+                    .MonthNthWeekDay = .{
+                        .month = 3,
+                        .n = 5,
+                        .day = 0,
+                        .time = 2 * std.time.s_per_hour,
+                    },
+                },
+                .end = .{
+                    .MonthNthWeekDay = .{
+                        .month = 10,
+                        .n = 5,
+                        .day = 0,
+                        .time = 3 * std.time.s_per_hour,
+                    },
+                },
+            },
+        };
+        try std.testing.expectFmt("CET-1CEST,M3.5.0,M10.5.0/3", "{}", .{europe_berlin});
     }
 };
 
