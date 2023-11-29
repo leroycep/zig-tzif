@@ -722,9 +722,9 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
 }
 
 fn parsePosixTZ_designation(string: []const u8, idx: *usize) ![]const u8 {
-    var quoted = string[idx.*] == '<';
+    const quoted = string[idx.*] == '<';
     if (quoted) idx.* += 1;
-    var start = idx.*;
+    const start = idx.*;
     while (idx.* < string.len) : (idx.* += 1) {
         if ((quoted and string[idx.*] == '>') or
             (!quoted and !std.ascii.isAlphabetic(string[idx.*])))
@@ -802,7 +802,7 @@ pub fn parse(allocator: std.mem.Allocator, reader: anytype, seekableStream: anyt
     }
 
     // Parse transition types
-    var transition_types = try allocator.alloc(u8, v2_header.timecnt);
+    const transition_types = try allocator.alloc(u8, v2_header.timecnt);
     errdefer allocator.free(transition_types);
     try reader.readNoEof(transition_types);
     for (transition_types) |transition_type| {
@@ -832,7 +832,7 @@ pub fn parse(allocator: std.mem.Allocator, reader: anytype, seekableStream: anyt
     }
 
     // Read designations
-    var time_zone_designations = try allocator.alloc(u8, v2_header.charcnt);
+    const time_zone_designations = try allocator.alloc(u8, v2_header.charcnt);
     errdefer allocator.free(time_zone_designations);
     try reader.readNoEof(time_zone_designations);
 
@@ -1093,28 +1093,23 @@ test "parse Pacific/Honolulu zoneinfo and calculate local times" {
     }
 }
 
-test "posix TZ string" {
-    // e.g. America/Denver; default DST transition time at 2 am
+test "posix TZ string, regular year" {
+    // IANA identifier America/Denver; default DST transition time at 2 am
     var result = try parsePosixTZ("MST7MDT,M3.2.0,M11.1.0");
     var stdoff: i32 = -25200;
     var dstoff: i32 = -21600;
-
     try testing.expectEqualSlices(u8, "MST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "MDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
     try testing.expectEqual(PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = 3, .n = 2, .day = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
     try testing.expectEqual(PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = 11, .n = 1, .day = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.end);
-
     try testing.expectEqual(stdoff, result.offset(1612734960).offset);
-
     // 2021-03-14T01:59:59-07:00 (2nd Sunday of the 3rd month, MST)
     try testing.expectEqual(stdoff, result.offset(1615712399).offset);
     // 2021-03-14T02:00:00-07:00 (2nd Sunday of the 3rd month, MST)
     try testing.expectEqual(dstoff, result.offset(1615712400).offset);
-
     try testing.expectEqual(dstoff, result.offset(1620453601).offset);
-
     // 2021-11-07T01:59:59-06:00 (1st Sunday of the 11th month, MDT)
     try testing.expectEqual(dstoff, result.offset(1636271999).offset);
     // 2021-11-07T02:00:00-06:00 (1st Sunday of the 11th month, MDT)
@@ -1143,17 +1138,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-05:00 --> dst 2020-03-08T03:00:00-04:00
-    // try testing.expectEqual(stdoff, result.offset(1583650799).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583650800).offset);
-    // // transition dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
-    // try testing.expectEqual(dstoff, result.offset(1604210399).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604210400).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-05:00 --> dst 2023-03-12T03:00:00-04:00
     try testing.expectEqual(stdoff, result.offset(1678604399).offset);
     try testing.expectEqual(dstoff, result.offset(1678604400).offset);
@@ -1169,17 +1153,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-05:00 --> dst 2020-03-08T03:00:00-04:00
-    // try testing.expectEqual(stdoff, result.offset(1583650799).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583650800).offset);
-    // // transtion dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
-    // try testing.expectEqual(dstoff, result.offset(1604210399).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604210400).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-05:00 --> dst 2023-03-12T03:00:00-04:00
     try testing.expectEqual(stdoff, result.offset(1678604399).offset);
     try testing.expectEqual(dstoff, result.offset(1678604400).offset);
@@ -1195,17 +1168,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-05:00 --> dst 2020-03-08T03:00:00-04:00
-    // try testing.expectEqual(stdoff, result.offset(1583650799).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583650800).offset);
-    // // transtion dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
-    // try testing.expectEqual(dstoff, result.offset(1604210399).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604210400).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-05:00 --> dst 2023-03-12T03:00:00-04:00
     try testing.expectEqual(stdoff, result.offset(1678604399).offset);
     try testing.expectEqual(dstoff, result.offset(1678604400).offset);
@@ -1221,17 +1183,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "CDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-06:00 --> dst 2020-03-08T03:00:00-05:00
-    // try testing.expectEqual(stdoff, result.offset(1583654399).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583654400).offset);
-    // // transtion dst 2020-11-01T01:59:59-05:00 --> std 2020-11-01T01:00:00-06:00
-    // try testing.expectEqual(dstoff, result.offset(1604213999).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604214000).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-06:00 --> dst 2023-03-12T03:00:00-05:00
     try testing.expectEqual(stdoff, result.offset(1678607999).offset);
     try testing.expectEqual(dstoff, result.offset(1678608000).offset);
@@ -1247,17 +1198,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "MDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-07:00 --> dst 2020-03-08T03:00:00-06:00
-    // try testing.expectEqual(stdoff, result.offset(1583657999).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583658000).offset);
-    // // transtion dst 2020-11-01T01:59:59-06:00 --> std 2020-11-01T01:00:00-07:00
-    // try testing.expectEqual(dstoff, result.offset(1604217599).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604217600).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-07:00 --> dst 2023-03-12T03:00:00-06:00
     try testing.expectEqual(stdoff, result.offset(1678611599).offset);
     try testing.expectEqual(dstoff, result.offset(1678611600).offset);
@@ -1273,17 +1213,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "PDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-08:00 --> dst 2020-03-08T03:00:00-07:00
-    // try testing.expectEqual(stdoff, result.offset(1583661599).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583661600).offset);
-    // // transtion dst 2020-11-01T01:59:59-07:00 --> std 2020-11-01T01:00:00-08:00
-    // try testing.expectEqual(dstoff, result.offset(1604221199).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604221200).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-08:00 --> dst 2023-03-12T03:00:00-07:00
     try testing.expectEqual(stdoff, result.offset(1678615199).offset);
     try testing.expectEqual(dstoff, result.offset(1678615200).offset);
@@ -1299,17 +1228,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "AKDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-08T01:59:59-09:00 --> dst 2020-03-08T03:00:00-08:00
-    // try testing.expectEqual(stdoff, result.offset(1583665199).offset);
-    // try testing.expectEqual(dstoff, result.offset(1583665200).offset);
-    // // transtion dst 2020-11-01T01:59:59-08:00 --> std 2020-11-01T01:00:00-09:00
-    // try testing.expectEqual(dstoff, result.offset(1604224799).offset);
-    // try testing.expectEqual(stdoff, result.offset(1604224800).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-12T01:59:59-09:00 --> dst 2023-03-12T03:00:00-08:00
     try testing.expectEqual(stdoff, result.offset(1678618799).offset);
     try testing.expectEqual(dstoff, result.offset(1678618800).offset);
@@ -1325,17 +1243,6 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "IDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // FIXME : this does not work yet
-    // // transition std 2020-03-27T01:59:59+02:00 --> dst 2020-03-27T03:00:00+03:00
-    // try testing.expectEqual(stdoff, result.offset(1585267199).offset);
-    // try testing.expectEqual(dstoff, result.offset(1585267200).offset);
-    // // transtion dst 2020-10-25T01:59:59+03:00 --> std 2020-10-25T01:00:00+02:00
-    // try testing.expectEqual(dstoff, result.offset(1603580399).offset);
-    // try testing.expectEqual(stdoff, result.offset(1603580400).offset);
-    // // ---
-    // 2023, normal year
     // transition std 2023-03-24T01:59:59+02:00 --> dst 2023-03-24T03:00:00+03:00
     try testing.expectEqual(stdoff, result.offset(1679615999).offset);
     try testing.expectEqual(dstoff, result.offset(1679616000).offset);
@@ -1344,25 +1251,15 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.offset(1698534000).offset);
 
     // IANA identifier: America/Argentina/Buenos_Aires
-    result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
+    result = try parsePosixTZ("WART4WARST,J1/0,J365/25"); // TODO : separate tests for jday ?
     stdoff = -10800;
     dstoff = -10800;
     try testing.expectEqualSlices(u8, "WART", result.std_designation);
+    try testing.expectEqualSlices(u8, "WARST", result.dst_designation.?);
     // // FIXME : this does not work yet
     // try testing.expectEqual(stdoff, result.std_offset);
-    try testing.expectEqualSlices(u8, "WARST", result.dst_designation.?);
     // try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
-    // // transition std 2020-03-27T01:59:59-03:00 --> dst 2020-03-27T03:00:00-03:00
-    // try testing.expectEqual(stdoff, result.offset(1585285199).offset);
-    // try testing.expectEqual(dstoff, result.offset(1585288800).offset);
-    // // transtion dst 2020-10-25T01:59:59-03:00 --> std 2020-10-25T01:00:00-03:00
-    // try testing.expectEqual(dstoff, result.offset(1603601999).offset);
-    // try testing.expectEqual(stdoff, result.offset(1603598400).offset);
-    // // ---
-    // 2023, normal year
-    // transition std 2023-03-24T01:59:59-03:00 --> dst 2023-03-24T03:00:00-03:00
+    // // transition std 2023-03-24T01:59:59-03:00 --> dst 2023-03-24T03:00:00-03:00
     // try testing.expectEqual(stdoff, result.offset(1679633999).offset);
     // try testing.expectEqual(dstoff, result.offset(1679637600).offset);
     // // transition dst 2023-10-29T01:59:59-03:00 --> std 2023-10-29T01:00:00-03:00
@@ -1377,21 +1274,165 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "WGST", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // ---
-    // // 2020, leap year
     // // FIXME : this does not work yet
-    // // transition std 2020-03-28T21:59:59-03:00 --> dst 2020-03-28T23:00:00-02:00
-    // try testing.expectEqual(stdoff, result.offset(1585443599).offset);
-    // try testing.expectEqual(dstoff, result.offset(1585443600).offset);
-    // // transtion dst 2020-10-24T22:59:59-02:00 --> std 2020-10-24T22:00:00-03:00
-    // try testing.expectEqual(dstoff, result.offset(1603587599).offset);
-    // try testing.expectEqual(stdoff, result.offset(1603587600).offset);
-    // // ---
     // 2023, normal year
-    // transition std 2023-03-28T21:59:59-02:00 --> dst 2023-03-28T23:00:00-02:00
+    // // transition std 2023-03-28T21:59:59-02:00 --> dst 2023-03-28T23:00:00-02:00
     // try testing.expectEqual(stdoff, result.offset(1680047999).offset);
     // try testing.expectEqual(dstoff, result.offset(1680051600).offset);
     // // transition dst 2023-10-24T22:59:59-02:00 --> std 2023-10-24T22:00:00-02:00
     // try testing.expectEqual(dstoff, result.offset(1698195599).offset);
     // try testing.expectEqual(stdoff, result.offset(1698192000).offset);
+}
+
+test "posix TZ string, leap year" {
+    if (true) return error.SkipZigTest; // FIXME : leap years
+    // IANA identifier: America/New_York
+    var result = try parsePosixTZ("EST5EDT,M3.2.0/02:00:00,M11.1.0");
+    var stdoff = -18000;
+    var dstoff = -14400;
+    try testing.expectEqualSlices(u8, "EST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-05:00 --> dst 2020-03-08T03:00:00-04:00
+    try testing.expectEqual(stdoff, result.offset(1583650799).offset);
+    try testing.expectEqual(dstoff, result.offset(1583650800).offset);
+    // transition dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
+    try testing.expectEqual(dstoff, result.offset(1604210399).offset);
+    try testing.expectEqual(stdoff, result.offset(1604210400).offset);
+
+    // IANA identifier: America/New_York
+    result = try parsePosixTZ("EST5EDT,M3.2.0/02:00:00,M11.1.0/02:00:00");
+    stdoff = -18000;
+    dstoff = -14400;
+    try testing.expectEqualSlices(u8, "EST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-05:00 --> dst 2020-03-08T03:00:00-04:00
+    try testing.expectEqual(stdoff, result.offset(1583650799).offset);
+    try testing.expectEqual(dstoff, result.offset(1583650800).offset);
+    // transtion dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
+    try testing.expectEqual(dstoff, result.offset(1604210399).offset);
+    try testing.expectEqual(stdoff, result.offset(1604210400).offset);
+
+    // IANA identifier: America/New_York
+    result = try parsePosixTZ("EST5EDT,M3.2.0,M11.1.0/02:00:00");
+    stdoff = -18000;
+    dstoff = -14400;
+    try testing.expectEqualSlices(u8, "EST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-05:00 --> dst 2020-03-08T03:00:00-04:00
+    try testing.expectEqual(stdoff, result.offset(1583650799).offset);
+    try testing.expectEqual(dstoff, result.offset(1583650800).offset);
+    // transtion dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
+    try testing.expectEqual(dstoff, result.offset(1604210399).offset);
+    try testing.expectEqual(stdoff, result.offset(1604210400).offset);
+
+    // IANA identifier: America/Chicago
+    result = try parsePosixTZ("CST6CDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
+    stdoff = -21600;
+    dstoff = -18000;
+    try testing.expectEqualSlices(u8, "CST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "CDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-06:00 --> dst 2020-03-08T03:00:00-05:00
+    try testing.expectEqual(stdoff, result.offset(1583654399).offset);
+    try testing.expectEqual(dstoff, result.offset(1583654400).offset);
+    // transtion dst 2020-11-01T01:59:59-05:00 --> std 2020-11-01T01:00:00-06:00
+    try testing.expectEqual(dstoff, result.offset(1604213999).offset);
+    try testing.expectEqual(stdoff, result.offset(1604214000).offset);
+
+    // IANA identifier: America/Denver
+    result = try parsePosixTZ("MST7MDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
+    stdoff = -25200;
+    dstoff = -21600;
+    try testing.expectEqualSlices(u8, "MST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "MDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-07:00 --> dst 2020-03-08T03:00:00-06:00
+    try testing.expectEqual(stdoff, result.offset(1583657999).offset);
+    try testing.expectEqual(dstoff, result.offset(1583658000).offset);
+    // transtion dst 2020-11-01T01:59:59-06:00 --> std 2020-11-01T01:00:00-07:00
+    try testing.expectEqual(dstoff, result.offset(1604217599).offset);
+    try testing.expectEqual(stdoff, result.offset(1604217600).offset);
+
+    // IANA identifier: America/Los_Angeles
+    result = try parsePosixTZ("PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
+    stdoff = -28800;
+    dstoff = -25200;
+    try testing.expectEqualSlices(u8, "PST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "PDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-08:00 --> dst 2020-03-08T03:00:00-07:00
+    try testing.expectEqual(stdoff, result.offset(1583661599).offset);
+    try testing.expectEqual(dstoff, result.offset(1583661600).offset);
+    // transtion dst 2020-11-01T01:59:59-07:00 --> std 2020-11-01T01:00:00-08:00
+    try testing.expectEqual(dstoff, result.offset(1604221199).offset);
+    try testing.expectEqual(stdoff, result.offset(1604221200).offset);
+
+    // IANA identifier: America/Sitka
+    result = try parsePosixTZ("AKST9AKDT,M3.2.0,M11.1.0");
+    stdoff = -32400;
+    dstoff = -28800;
+    try testing.expectEqualSlices(u8, "AKST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "AKDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-08T01:59:59-09:00 --> dst 2020-03-08T03:00:00-08:00
+    try testing.expectEqual(stdoff, result.offset(1583665199).offset);
+    try testing.expectEqual(dstoff, result.offset(1583665200).offset);
+    // transtion dst 2020-11-01T01:59:59-08:00 --> std 2020-11-01T01:00:00-09:00
+    try testing.expectEqual(dstoff, result.offset(1604224799).offset);
+    try testing.expectEqual(stdoff, result.offset(1604224800).offset);
+
+    // IANA identifier: Asia/Jerusalem
+    result = try parsePosixTZ("IST-2IDT,M3.4.4/26,M10.5.0");
+    stdoff = 7200;
+    dstoff = 10800;
+    try testing.expectEqualSlices(u8, "IST", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "IDT", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-27T01:59:59+02:00 --> dst 2020-03-27T03:00:00+03:00
+    try testing.expectEqual(stdoff, result.offset(1585267199).offset);
+    try testing.expectEqual(dstoff, result.offset(1585267200).offset);
+    // transtion dst 2020-10-25T01:59:59+03:00 --> std 2020-10-25T01:00:00+02:00
+    try testing.expectEqual(dstoff, result.offset(1603580399).offset);
+    try testing.expectEqual(stdoff, result.offset(1603580400).offset);
+
+    // IANA identifier: America/Argentina/Buenos_Aires
+    result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
+    stdoff = -10800;
+    dstoff = -10800;
+    try testing.expectEqualSlices(u8, "WART", result.std_designation);
+    try testing.expectEqualSlices(u8, "WARST", result.dst_designation.?);
+    try testing.expectEqual(stdoff, result.std_offset); // FIXME : this does not work yet
+    try testing.expectEqual(dstoff, result.dst_offset); // FIXME : this does not work yet
+    // transition std 2020-03-27T01:59:59-03:00 --> dst 2020-03-27T03:00:00-03:00
+    try testing.expectEqual(stdoff, result.offset(1585285199).offset);
+    try testing.expectEqual(dstoff, result.offset(1585288800).offset);
+    // transtion dst 2020-10-25T01:59:59-03:00 --> std 2020-10-25T01:00:00-03:00
+    try testing.expectEqual(dstoff, result.offset(1603601999).offset);
+    try testing.expectEqual(stdoff, result.offset(1603598400).offset);
+
+    // IANA identifier: America/Nuuk
+    result = try parsePosixTZ("WGT3WGST,M3.5.0/-2,M10.5.0/-1");
+    stdoff = -10800;
+    dstoff = -7200;
+    try testing.expectEqualSlices(u8, "WGT", result.std_designation);
+    try testing.expectEqual(stdoff, result.std_offset);
+    try testing.expectEqualSlices(u8, "WGST", result.dst_designation.?);
+    try testing.expectEqual(dstoff, result.dst_offset);
+    // transition std 2020-03-28T21:59:59-03:00 --> dst 2020-03-28T23:00:00-02:00
+    try testing.expectEqual(stdoff, result.offset(1585443599).offset);
+    try testing.expectEqual(dstoff, result.offset(1585443600).offset);
+    // transtion dst 2020-10-24T22:59:59-02:00 --> std 2020-10-24T22:00:00-03:00
+    try testing.expectEqual(dstoff, result.offset(1603587599).offset);
+    try testing.expectEqual(stdoff, result.offset(1603587600).offset);
 }
