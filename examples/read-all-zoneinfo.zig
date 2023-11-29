@@ -6,13 +6,18 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    const path_to_dir = if (args.len > 1) args[1] else "/usr/share/zoneinfo";
+
     var successful_parse: usize = 0;
     var successful_convert: usize = 0;
     var failed_parse: usize = 0;
     var failed_convert: usize = 0;
 
     const cwd = std.fs.cwd();
-    const zoneinfo = try cwd.openIterableDir("/usr/share/zoneinfo", .{});
+    const zoneinfo = try cwd.openIterableDir(path_to_dir, .{});
 
     var walker = try zoneinfo.walk(allocator);
     defer walker.deinit();
