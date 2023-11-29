@@ -373,16 +373,16 @@ pub const PosixTZ = struct {
         }
 
         const std_offset_west = -this.std_offset;
-        const std_seconds = @mod(std_offset_west, std.time.s_per_min);
-        const std_minutes = @mod(@divTrunc(std_offset_west, std.time.s_per_min), 60);
+        const std_seconds = @rem(std_offset_west, std.time.s_per_min);
+        const std_minutes = @rem(@divTrunc(std_offset_west, std.time.s_per_min), 60);
         const std_hours = @divTrunc(@divTrunc(std_offset_west, std.time.s_per_min), 60);
 
         try std.fmt.format(writer, "{}", .{std_hours});
         if (std_minutes != 0 or std_seconds != 0) {
-            try std.fmt.format(writer, ":{}", .{std_minutes});
+            try std.fmt.format(writer, ":{}", .{if (std_minutes < 0) -std_minutes else std_minutes});
         }
         if (std_seconds != 0) {
-            try std.fmt.format(writer, ":{}", .{std_seconds});
+            try std.fmt.format(writer, ":{}", .{if (std_seconds < 0) -std_seconds else std_seconds});
         }
 
         if (this.dst_designation) |dst_designation| {
@@ -403,16 +403,16 @@ pub const PosixTZ = struct {
             // Only write out the DST offset if it is not just the standard offset plus an hour
             if (this.dst_offset != this.std_offset + std.time.s_per_hour) {
                 const dst_offset_west = -this.dst_offset;
-                const dst_seconds = @mod(dst_offset_west, std.time.s_per_min);
-                const dst_minutes = @mod(@divTrunc(dst_offset_west, std.time.s_per_min), 60);
+                const dst_seconds = @rem(dst_offset_west, std.time.s_per_min);
+                const dst_minutes = @rem(@divTrunc(dst_offset_west, std.time.s_per_min), 60);
                 const dst_hours = @divTrunc(@divTrunc(dst_offset_west, std.time.s_per_min), 60);
 
                 try std.fmt.format(writer, "{}", .{dst_hours});
                 if (dst_minutes != 0 or dst_seconds != 0) {
-                    try std.fmt.format(writer, ":{}", .{dst_minutes});
+                    try std.fmt.format(writer, ":{}", .{if (dst_minutes < 0) -dst_minutes else dst_minutes});
                 }
                 if (dst_seconds != 0) {
-                    try std.fmt.format(writer, ":{}", .{dst_seconds});
+                    try std.fmt.format(writer, ":{}", .{if (dst_seconds < 0) -dst_seconds else dst_seconds});
                 }
             }
         }
@@ -484,6 +484,32 @@ pub const PosixTZ = struct {
             .dst_range = null,
         };
         try std.testing.expectFmt("<+03>-3", "{}", .{antarctica_syowa});
+
+        const pacific_chatham = PosixTZ{
+            .std_designation = "+1245",
+            .std_offset = 12 * std.time.s_per_hour + 45 * std.time.s_per_min,
+            .dst_designation = "+1345",
+            .dst_offset = 13 * std.time.s_per_hour + 45 * std.time.s_per_min,
+            .dst_range = .{
+                .start = .{
+                    .MonthNthWeekDay = .{
+                        .month = 9,
+                        .n = 5,
+                        .day = 0,
+                        .time = 2 * std.time.s_per_hour + 45 * std.time.s_per_min,
+                    },
+                },
+                .end = .{
+                    .MonthNthWeekDay = .{
+                        .month = 4,
+                        .n = 1,
+                        .day = 0,
+                        .time = 3 * std.time.s_per_hour + 45 * std.time.s_per_min,
+                    },
+                },
+            },
+        };
+        try std.testing.expectFmt("<+1245>-12:45<+1345>,M9.5.0/2:45,M4.1.0/3:45", "{}", .{pacific_chatham});
     }
 };
 
