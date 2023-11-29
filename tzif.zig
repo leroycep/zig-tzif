@@ -551,6 +551,39 @@ fn isLeapYear(year: i32) bool {
     return @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
 }
 
+test isLeapYear {
+    const leap_years_1800_to_2400 = [_]i32{
+        1804, 1808, 1812, 1816, 1820, 1824, 1828,
+        1832, 1836, 1840, 1844, 1848, 1852, 1856,
+        1860, 1864, 1868, 1872, 1876, 1880, 1884,
+        1888, 1892, 1896, 1904, 1908, 1912, 1916,
+        1920, 1924, 1928, 1932, 1936, 1940, 1944,
+        1948, 1952, 1956, 1960, 1964, 1968, 1972,
+        1976, 1980, 1984, 1988, 1992, 1996, 2000,
+        2004, 2008, 2012, 2016, 2020, 2024, 2028,
+        2032, 2036, 2040, 2044, 2048, 2052, 2056,
+        2060, 2064, 2068, 2072, 2076, 2080, 2084,
+        2088, 2092, 2096, 2104, 2108, 2112, 2116,
+        2120, 2124, 2128, 2132, 2136, 2140, 2144,
+        2148, 2152, 2156, 2160, 2164, 2168, 2172,
+        2176, 2180, 2184, 2188, 2192, 2196, 2204,
+        2208, 2212, 2216, 2220, 2224, 2228, 2232,
+        2236, 2240, 2244, 2248, 2252, 2256, 2260,
+        2264, 2268, 2272, 2276, 2280, 2284, 2288,
+        2292, 2296, 2304, 2308, 2312, 2316, 2320,
+        2324, 2328, 2332, 2336, 2340, 2344, 2348,
+        2352, 2356, 2360, 2364, 2368, 2372, 2376,
+        2380, 2384, 2388, 2392, 2396, 2400,
+    };
+
+    for (leap_years_1800_to_2400) |leap_year| {
+        errdefer std.debug.print("year = {}\n", .{leap_year});
+        try std.testing.expect(isLeapYear(leap_year));
+    }
+    try std.testing.expect(!isLeapYear(2021));
+    try std.testing.expect(!isLeapYear(2023));
+}
+
 const UNIX_EPOCH_YEAR = 1970;
 const UNIX_EPOCH_NUMBER_OF_4_YEAR_PERIODS = UNIX_EPOCH_YEAR / 4;
 const UNIX_EPOCH_CENTURIES = UNIX_EPOCH_YEAR / 100;
@@ -579,6 +612,9 @@ fn year_to_secs(year: i32) i64 {
 
 test year_to_secs {
     try std.testing.expectEqual(@as(i64, 0), year_to_secs(1970));
+    try std.testing.expectEqual(@as(i64, 1577836800), year_to_secs(2020));
+    try std.testing.expectEqual(@as(i64, 1609459200), year_to_secs(2021));
+    try std.testing.expectEqual(@as(i64, 1640995200), year_to_secs(2022));
     try std.testing.expectEqual(@as(i64, 1672531200), year_to_secs(2023));
 }
 
@@ -1284,12 +1320,11 @@ test "posix TZ string, regular year" {
     // try testing.expectEqual(stdoff, result.offset(1698192000).offset);
 }
 
-test "posix TZ string, leap year" {
-    if (true) return error.SkipZigTest; // FIXME : leap years
+test "posix TZ string, leap year, America/New_York, start transition time specified" {
     // IANA identifier: America/New_York
-    var result = try parsePosixTZ("EST5EDT,M3.2.0/02:00:00,M11.1.0");
-    var stdoff = -18000;
-    var dstoff = -14400;
+    const result = try parsePosixTZ("EST5EDT,M3.2.0/02:00:00,M11.1.0");
+    const stdoff: i32 = -18000;
+    const dstoff: i32 = -14400;
     try testing.expectEqualSlices(u8, "EST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
@@ -1300,11 +1335,13 @@ test "posix TZ string, leap year" {
     // transition dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
     try testing.expectEqual(dstoff, result.offset(1604210399).offset);
     try testing.expectEqual(stdoff, result.offset(1604210400).offset);
+}
 
+test "posix TZ string, leap year, America/New_York, both transition times specified" {
     // IANA identifier: America/New_York
-    result = try parsePosixTZ("EST5EDT,M3.2.0/02:00:00,M11.1.0/02:00:00");
-    stdoff = -18000;
-    dstoff = -14400;
+    const result = try parsePosixTZ("EST5EDT,M3.2.0/02:00:00,M11.1.0/02:00:00");
+    const stdoff: i32 = -18000;
+    const dstoff: i32 = -14400;
     try testing.expectEqualSlices(u8, "EST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
@@ -1315,11 +1352,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
     try testing.expectEqual(dstoff, result.offset(1604210399).offset);
     try testing.expectEqual(stdoff, result.offset(1604210400).offset);
+}
 
+test "posix TZ string, leap year, America/New_York, end transition time specified" {
     // IANA identifier: America/New_York
-    result = try parsePosixTZ("EST5EDT,M3.2.0,M11.1.0/02:00:00");
-    stdoff = -18000;
-    dstoff = -14400;
+    const result = try parsePosixTZ("EST5EDT,M3.2.0,M11.1.0/02:00:00");
+    const stdoff: i32 = -18000;
+    const dstoff: i32 = -14400;
     try testing.expectEqualSlices(u8, "EST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "EDT", result.dst_designation.?);
@@ -1330,11 +1369,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-11-01T01:59:59-04:00 --> std 2020-11-01T01:00:00-05:00
     try testing.expectEqual(dstoff, result.offset(1604210399).offset);
     try testing.expectEqual(stdoff, result.offset(1604210400).offset);
+}
 
+test "posix TZ string, leap year, America/Chicago, both transition times specified" {
     // IANA identifier: America/Chicago
-    result = try parsePosixTZ("CST6CDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
-    stdoff = -21600;
-    dstoff = -18000;
+    const result = try parsePosixTZ("CST6CDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
+    const stdoff: i32 = -21600;
+    const dstoff: i32 = -18000;
     try testing.expectEqualSlices(u8, "CST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "CDT", result.dst_designation.?);
@@ -1345,11 +1386,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-11-01T01:59:59-05:00 --> std 2020-11-01T01:00:00-06:00
     try testing.expectEqual(dstoff, result.offset(1604213999).offset);
     try testing.expectEqual(stdoff, result.offset(1604214000).offset);
+}
 
+test "posix TZ string, leap year, America/Denver, both transition times specified" {
     // IANA identifier: America/Denver
-    result = try parsePosixTZ("MST7MDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
-    stdoff = -25200;
-    dstoff = -21600;
+    const result = try parsePosixTZ("MST7MDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
+    const stdoff: i32 = -25200;
+    const dstoff: i32 = -21600;
     try testing.expectEqualSlices(u8, "MST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "MDT", result.dst_designation.?);
@@ -1360,11 +1403,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-11-01T01:59:59-06:00 --> std 2020-11-01T01:00:00-07:00
     try testing.expectEqual(dstoff, result.offset(1604217599).offset);
     try testing.expectEqual(stdoff, result.offset(1604217600).offset);
+}
 
+test "posix TZ string, leap year, America/Los_Angeles, both transition times specified" {
     // IANA identifier: America/Los_Angeles
-    result = try parsePosixTZ("PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
-    stdoff = -28800;
-    dstoff = -25200;
+    const result = try parsePosixTZ("PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00");
+    const stdoff: i32 = -28800;
+    const dstoff: i32 = -25200;
     try testing.expectEqualSlices(u8, "PST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "PDT", result.dst_designation.?);
@@ -1375,11 +1420,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-11-01T01:59:59-07:00 --> std 2020-11-01T01:00:00-08:00
     try testing.expectEqual(dstoff, result.offset(1604221199).offset);
     try testing.expectEqual(stdoff, result.offset(1604221200).offset);
+}
 
+test "posix TZ string, leap year, America/Sitka" {
     // IANA identifier: America/Sitka
-    result = try parsePosixTZ("AKST9AKDT,M3.2.0,M11.1.0");
-    stdoff = -32400;
-    dstoff = -28800;
+    const result = try parsePosixTZ("AKST9AKDT,M3.2.0,M11.1.0");
+    const stdoff: i32 = -32400;
+    const dstoff: i32 = -28800;
     try testing.expectEqualSlices(u8, "AKST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "AKDT", result.dst_designation.?);
@@ -1390,11 +1437,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-11-01T01:59:59-08:00 --> std 2020-11-01T01:00:00-09:00
     try testing.expectEqual(dstoff, result.offset(1604224799).offset);
     try testing.expectEqual(stdoff, result.offset(1604224800).offset);
+}
 
+test "posix TZ string, leap year, Asia/Jerusalem" {
     // IANA identifier: Asia/Jerusalem
-    result = try parsePosixTZ("IST-2IDT,M3.4.4/26,M10.5.0");
-    stdoff = 7200;
-    dstoff = 10800;
+    const result = try parsePosixTZ("IST-2IDT,M3.4.4/26,M10.5.0");
+    const stdoff: i32 = 7200;
+    const dstoff: i32 = 10800;
     try testing.expectEqualSlices(u8, "IST", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "IDT", result.dst_designation.?);
@@ -1405,11 +1454,15 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-10-25T01:59:59+03:00 --> std 2020-10-25T01:00:00+02:00
     try testing.expectEqual(dstoff, result.offset(1603580399).offset);
     try testing.expectEqual(stdoff, result.offset(1603580400).offset);
+}
 
+// FIXME : Buenos Aires has DST all year long
+test "posix TZ string, leap year, America/Argentina/Buenos_Aires" {
+    if (true) return error.SkipZigTest;
     // IANA identifier: America/Argentina/Buenos_Aires
-    result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
-    stdoff = -10800;
-    dstoff = -10800;
+    const result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
+    const stdoff: i32 = -10800;
+    const dstoff: i32 = -10800;
     try testing.expectEqualSlices(u8, "WART", result.std_designation);
     try testing.expectEqualSlices(u8, "WARST", result.dst_designation.?);
     try testing.expectEqual(stdoff, result.std_offset); // FIXME : this does not work yet
@@ -1420,11 +1473,13 @@ test "posix TZ string, leap year" {
     // transtion dst 2020-10-25T01:59:59-03:00 --> std 2020-10-25T01:00:00-03:00
     try testing.expectEqual(dstoff, result.offset(1603601999).offset);
     try testing.expectEqual(stdoff, result.offset(1603598400).offset);
+}
 
+test "posix TZ string, leap year, America/Nuuk" {
     // IANA identifier: America/Nuuk
-    result = try parsePosixTZ("WGT3WGST,M3.5.0/-2,M10.5.0/-1");
-    stdoff = -10800;
-    dstoff = -7200;
+    const result = try parsePosixTZ("WGT3WGST,M3.5.0/-2,M10.5.0/-1");
+    const stdoff: i32 = -10800;
+    const dstoff: i32 = -7200;
     try testing.expectEqualSlices(u8, "WGT", result.std_designation);
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "WGST", result.dst_designation.?);
