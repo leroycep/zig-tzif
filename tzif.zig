@@ -592,9 +592,9 @@ const UNIX_EPOCH_CYCLES = UNIX_EPOCH_YEAR / 400;
 
 /// Takes in year number, returns the unix timestamp for the start of the year.
 fn year_to_secs(year: i32) i64 {
-    const number_of_four_year_periods = @divFloor(year, 4);
-    const centuries = @divFloor(year, 100);
-    const cycles = @divFloor(year, 400);
+    const number_of_four_year_periods = @divFloor(year - 1, 4);
+    const centuries = @divFloor(year - 1, 100);
+    const cycles = @divFloor(year - 1, 400);
 
     const years_since_epoch = year - UNIX_EPOCH_YEAR;
     const number_of_four_year_periods_since_epoch = number_of_four_year_periods - UNIX_EPOCH_NUMBER_OF_4_YEAR_PERIODS;
