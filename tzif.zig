@@ -80,7 +80,7 @@ pub const TimeZone = struct {
                 // Base offset on the TZ string
                 const offset_res = posixTZ.offset(utc);
                 return ConversionResult{
-                    .timestamp = utc - offset_res.offset,
+                    .timestamp = utc + offset_res.offset,
                     .offset = offset_res.offset,
                     .is_daylight_saving_time = offset_res.is_daylight_saving_time,
                     .designation = offset_res.designation,
@@ -184,40 +184,85 @@ pub const PosixTZ = struct {
     pub const Rule = union(enum) {
         JulianDay: struct {
             /// 1 <= day <= 365. Leap days are not counted and are impossible to refer to
-            /// 0 <= day <= 365. Leap days are counted, and can be referred to.
-            oneBased: bool,
             day: u16,
-            time: i32,
+            /// The default DST transition time is 02:00:00 local time
+            time: i32 = 2 * std.time.s_per_hour,
         },
-        MonthWeekDay: struct {
-            /// 1 <= m <= 12
-            m: u8,
-            /// 1 <= n <= 5
+        JulianDayZero: struct {
+            /// 0 <= day <= 365. Leap days are counted, and can be referred to.
+            day: u16,
+            /// The default DST transition time is 02:00:00 local time
+            time: i32 = 2 * std.time.s_per_hour,
+        },
+        /// In the format of "Mm.n.d", where m = month, n = n, and d = day.
+        MonthNthWeekDay: struct {
+            /// Month of the year. 1 <= month <= 12
+            month: u8,
+            /// Specifies which of the weekdays should be used. Does NOT specify the week of the month! 1 <= week <= 5.
+            ///
+            /// Let's use M3.2.0 as an example. The month is 3, which translates to March.
+            /// The day is 0, which means Sunday. `n` is 2, which means the second Sunday
+            /// in the month, NOT Sunday of the second week!
+            ///
+            /// In 2021, this is difference between 2023-03-07 (Sunday of the second week of March)
+            /// and 2023-03-14 (the Second Sunday of March).
+            ///
+            /// * When n is 1, it means the first week in which the day `day` occurs.
+            /// * 5 is a special case. When n is 5, it means "the last day `day` in the month", which may occur in either the fourth or the fifth week.
             n: u8,
-            /// 0 <= n <= 6
-            d: u8,
-            time: i32,
+            /// Day of the week. 0 <= day <= 6. Day zero is Sunday.
+            day: u8,
+            /// The default DST transition time is 02:00:00 local time
+            time: i32 = 2 * std.time.s_per_hour,
         },
 
+        /// Returned value is the local timestamp when the timezone will transition in the given year.
         pub fn toSecs(this: @This(), year: i32) i64 {
-            var is_leap: bool = undefined;
-            var t = year_to_secs(year, &is_leap);
+            const is_leap: bool = isLeapYear(year);
+            const start_of_year = year_to_secs(year);
+
+            var t = start_of_year;
 
             switch (this) {
                 .JulianDay => |j| {
                     var x: i64 = j.day;
-                    if (j.oneBased and (x < 60 or !is_leap)) x -= 1;
+                    if (x < 60 or !is_leap) x -= 1;
                     t += std.time.s_per_day * x;
                     t += j.time;
                 },
-                .MonthWeekDay => |mwd| {
-                    t += month_to_secs(mwd.m - 1, is_leap);
-                    const wday = @divFloor(@mod((t + 4 * std.time.s_per_day), (7 * std.time.s_per_day)), std.time.s_per_day);
-                    var days = mwd.d - wday;
-                    if (days < 0) days += 7;
-                    var n = mwd.n;
-                    if (mwd.n == 5 and days + 28 >= days_in_month(mwd.m, is_leap)) n = 4;
-                    t += std.time.s_per_day * (days + 7 * (n - 1));
+                .JulianDayZero => |j| {
+                    t += std.time.s_per_day * @as(i64, j.day);
+                    t += j.time;
+                },
+                .MonthNthWeekDay => |mwd| {
+                    const offset_of_month_in_year = month_to_secs(mwd.month - 1, is_leap);
+
+                    const UNIX_EPOCH_WEEKDAY = 4; // Thursday
+                    const DAYS_PER_WEEK = 7;
+
+                    const days_since_epoch = @divFloor(start_of_year + offset_of_month_in_year, std.time.s_per_day);
+
+                    const first_weekday_of_month = @mod(days_since_epoch + UNIX_EPOCH_WEEKDAY, DAYS_PER_WEEK);
+
+                    const weekday_offset_for_month = if (first_weekday_of_month <= mwd.day)
+                        // the first matching weekday is during the first week of the month
+                        mwd.day - first_weekday_of_month
+                    else
+                        // the first matching weekday is during the second week of the month
+                        mwd.day + DAYS_PER_WEEK - first_weekday_of_month;
+
+                    const days_since_start_of_month = switch (mwd.n) {
+                        1...4 => |n| (n - 1) * DAYS_PER_WEEK + weekday_offset_for_month,
+                        5 => if (weekday_offset_for_month + (4 * DAYS_PER_WEEK) >= days_in_month(mwd.month, is_leap))
+                            // the last matching weekday is during the 4th week of the month
+                            (4 - 1) * DAYS_PER_WEEK + weekday_offset_for_month
+                        else
+                            // the last matching weekday is during the 5th week of the month
+                            (5 - 1) * DAYS_PER_WEEK + weekday_offset_for_month,
+                        else => unreachable,
+                    };
+
+                    t += offset_of_month_in_year + std.time.s_per_day * days_since_start_of_month;
                     t += mwd.time;
                 },
             }
@@ -231,6 +276,7 @@ pub const PosixTZ = struct {
         is_daylight_saving_time: bool,
     };
 
+    /// Get the offset from UTC for this PosixTZ, factoring in Daylight Saving Time.
     pub fn offset(this: @This(), utc: i64) OffsetResult {
         const dst_designation = this.dst_designation orelse {
             std.debug.assert(this.dst_range == null);
@@ -238,8 +284,8 @@ pub const PosixTZ = struct {
         };
         if (this.dst_range) |range| {
             const utc_year = secs_to_year(utc);
-            const start_dst = range.start.toSecs(utc_year);
-            const end_dst = range.end.toSecs(utc_year);
+            const start_dst = range.start.toSecs(utc_year) - this.std_offset;
+            const end_dst = range.end.toSecs(utc_year) - this.dst_offset;
             if (start_dst < end_dst) {
                 if (utc >= start_dst and utc < end_dst) {
                     return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
@@ -282,67 +328,50 @@ fn month_to_secs(m: u8, is_leap: bool) i32 {
 fn secs_to_year(secs: i64) i32 {
     // Copied from MUSL
     // TODO: make more efficient?
-    var _is_leap: bool = undefined;
-    var y = @as(i32, @intCast(@divFloor(secs, 31556952) + 70));
-    while (year_to_secs(y, &_is_leap) > secs) y -= 1;
-    while (year_to_secs(y + 1, &_is_leap) < secs) y += 1;
+    var y = @as(i32, @intCast(@divFloor(secs, std.time.s_per_day * 365) + 1970));
+    while (year_to_secs(y) > secs) y -= 1;
+    while (year_to_secs(y + 1) < secs) y += 1;
     return y;
 }
 
-fn year_to_secs(year: i32, is_leap: *bool) i64 {
-    if (year - 2 <= 136) {
-        const y = year;
-        var leaps = (y - 68) >> 2;
-        if (((y - 68) & 3) != 0) {
-            leaps -= 1;
-            is_leap.* = true;
-        } else is_leap.* = false;
-        return 31536000 * (y - 70) + std.time.s_per_day * leaps;
-    }
+test secs_to_year {
+    try std.testing.expectEqual(@as(i32, 1970), secs_to_year(0));
+    try std.testing.expectEqual(@as(i32, 2023), secs_to_year(1672531200));
+}
 
-    is_leap.* = false;
-    var centuries: i64 = undefined;
-    var leaps: i64 = undefined;
-    var cycles = @divFloor((year - 100), 400);
-    var rem = @mod((year - 100), 400);
-    if (rem < 0) {
-        cycles -= 1;
-        rem += 400;
-    }
-    if (rem != 0) {
-        is_leap.* = true;
-        centuries = 0;
-        leaps = 0;
-    } else {
-        if (rem >= 200) {
-            if (rem >= 300) {
-                centuries = 3;
-                rem -= 300;
-            } else {
-                centuries = 2;
-                rem -= 200;
-            }
-        } else {
-            if (rem >= 100) {
-                centuries = 1;
-                rem -= 100;
-            } else {
-                centuries = 0;
-            }
-        }
-        if (rem != 0) {
-            is_leap.* = false;
-            leaps = 0;
-        } else {
-            leaps = @divFloor(rem, 4);
-            rem = @mod(rem, 4);
-            is_leap.* = rem != 0;
-        }
-    }
+fn isLeapYear(year: i32) bool {
+    return @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
+}
 
-    leaps += 97 * cycles + 24 * centuries - @intFromBool(is_leap.*);
+const UNIX_EPOCH_YEAR = 1970;
+const UNIX_EPOCH_NUMBER_OF_4_YEAR_PERIODS = UNIX_EPOCH_YEAR / 4;
+const UNIX_EPOCH_CENTURIES = UNIX_EPOCH_YEAR / 100;
+/// Number of 400 year periods before the unix epoch
+const UNIX_EPOCH_CYCLES = UNIX_EPOCH_YEAR / 400;
 
-    return (year - 100) * 31536000 + leaps * std.time.s_per_day + 946684800 + std.time.s_per_day;
+/// Takes in year number, returns the unix timestamp for the start of the year.
+fn year_to_secs(year: i32) i64 {
+    const number_of_four_year_periods = @divFloor(year, 4);
+    const centuries = @divFloor(year, 100);
+    const cycles = @divFloor(year, 400);
+
+    const years_since_epoch = year - UNIX_EPOCH_YEAR;
+    const number_of_four_year_periods_since_epoch = number_of_four_year_periods - UNIX_EPOCH_NUMBER_OF_4_YEAR_PERIODS;
+    const centuries_since_epoch = centuries - UNIX_EPOCH_CENTURIES;
+    const cycles_since_epoch = cycles - UNIX_EPOCH_CYCLES;
+
+    const number_of_leap_days_since_epoch =
+        number_of_four_year_periods_since_epoch -
+        centuries_since_epoch +
+        cycles_since_epoch;
+
+    const SECONDS_PER_REGULAR_YEAR = 365 * std.time.s_per_day;
+    return years_since_epoch * SECONDS_PER_REGULAR_YEAR + number_of_leap_days_since_epoch * std.time.s_per_day;
+}
+
+test year_to_secs {
+    try std.testing.expectEqual(@as(i64, 0), year_to_secs(1970));
+    try std.testing.expectEqual(@as(i64, 1672531200), year_to_secs(2023));
 }
 
 const TIME_TYPE_SIZE = 6;
@@ -459,11 +488,11 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
     if (string[0] == 'J') {
         const julian_day1 = try std.fmt.parseInt(u16, string[1..], 10);
         if (julian_day1 < 1 or julian_day1 > 365) return error.InvalidFormat;
-        return PosixTZ.Rule{ .JulianDay = .{ .oneBased = true, .day = julian_day1, .time = time } };
+        return PosixTZ.Rule{ .JulianDay = .{ .day = julian_day1, .time = time } };
     } else if (std.ascii.isDigit(string[0])) {
         const julian_day0 = try std.fmt.parseInt(u16, string[0..], 10);
         if (julian_day0 > 365) return error.InvalidFormat;
-        return PosixTZ.Rule{ .JulianDay = .{ .oneBased = false, .day = julian_day0, .time = time } };
+        return PosixTZ.Rule{ .JulianDayZero = .{ .day = julian_day0, .time = time } };
     } else if (string[0] == 'M') {
         var split_iter = std.mem.split(u8, string[1..], ".");
         const m_str = split_iter.next() orelse return error.InvalidFormat;
@@ -478,7 +507,7 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
         if (n < 1 or n > 5) return error.InvalidFormat;
         if (d > 6) return error.InvalidFormat;
 
-        return PosixTZ.Rule{ .MonthWeekDay = .{ .m = m, .n = n, .d = d, .time = time } };
+        return PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = m, .n = n, .day = d, .time = time } };
     } else {
         return error.InvalidFormat;
     }
@@ -729,7 +758,6 @@ fn getTransitionTypeByTimestamp(transition_times: []const i64, timestamp_utc: i6
         }
     }
 
-    // std.debug.print("{s}:{} right = {}\n", .{ @src().file, @src().line, right });
     if (right >= transition_times.len) {
         return .specified_by_posix_tz;
     } else if (right > 0) {
@@ -820,42 +848,41 @@ test "parse Pacific/Honolulu zoneinfo and calculate local times" {
     try testing.expectEqualSlices(bool, is_ut, res.transitionIsUT);
     try testing.expectEqualSlices(u8, string, res.string);
 
-    // TODO : revise
-    // {
-    //     const conversion = res.localTimeFromUTC(-1156939200).?;
-    //     try testing.expectEqual(@as(i64, -1156973400), conversion.timestamp);
-    //     try testing.expectEqual(true, conversion.is_daylight_saving_time);
-    //     try testing.expectEqualSlices(u8, "HDT", conversion.designation);
-    // }
-    // {
-    //     // A second before the first timezone transition
-    //     const conversion = res.localTimeFromUTC(-2334101315).?;
-    //     try testing.expectEqual(@as(i64, -2334101315 - 37886), conversion.timestamp);
-    //     try testing.expectEqual(false, conversion.is_daylight_saving_time);
-    //     try testing.expectEqualSlices(u8, "LMT", conversion.designation);
-    // }
-    // {
-    //     // At the first timezone transition
-    //     const conversion = res.localTimeFromUTC(-2334101314).?;
-    //     try testing.expectEqual(@as(i64, -2334101314 - 37800), conversion.timestamp);
-    //     try testing.expectEqual(false, conversion.is_daylight_saving_time);
-    //     try testing.expectEqualSlices(u8, "HST", conversion.designation);
-    // }
-    // {
-    //     // After the first timezone transition
-    //     const conversion = res.localTimeFromUTC(-2334101313).?;
-    //     try testing.expectEqual(@as(i64, -2334101313 - 37800), conversion.timestamp);
-    //     try testing.expectEqual(false, conversion.is_daylight_saving_time);
-    //     try testing.expectEqualSlices(u8, "HST", conversion.designation);
-    // }
-    // {
-    //     // After the last timezone transition; conversion should be performed using the Posix TZ footer.
-    //     // Taken from RFC8536 Appendix B.2
-    //     const conversion = res.localTimeFromUTC(1546300800).?;
-    //     try testing.expectEqual(@as(i64, 1546300800) - 10 * std.time.s_per_hour, conversion.timestamp);
-    //     try testing.expectEqual(false, conversion.is_daylight_saving_time);
-    //     try testing.expectEqualSlices(u8, "HST", conversion.designation);
-    // }
+    {
+        const conversion = res.localTimeFromUTC(-1156939200).?;
+        try testing.expectEqual(@as(i64, -1156973400), conversion.timestamp);
+        try testing.expectEqual(true, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "HDT", conversion.designation);
+    }
+    {
+        // A second before the first timezone transition
+        const conversion = res.localTimeFromUTC(-2334101315).?;
+        try testing.expectEqual(@as(i64, -2334101315 - 37886), conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "LMT", conversion.designation);
+    }
+    {
+        // At the first timezone transition
+        const conversion = res.localTimeFromUTC(-2334101314).?;
+        try testing.expectEqual(@as(i64, -2334101314 - 37800), conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "HST", conversion.designation);
+    }
+    {
+        // After the first timezone transition
+        const conversion = res.localTimeFromUTC(-2334101313).?;
+        try testing.expectEqual(@as(i64, -2334101313 - 37800), conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "HST", conversion.designation);
+    }
+    {
+        // After the last timezone transition; conversion should be performed using the Posix TZ footer.
+        // Taken from RFC8536 Appendix B.2
+        const conversion = res.localTimeFromUTC(1546300800).?;
+        try testing.expectEqual(@as(i64, 1546300800) - 10 * std.time.s_per_hour, conversion.timestamp);
+        try testing.expectEqual(false, conversion.is_daylight_saving_time);
+        try testing.expectEqualSlices(u8, "HST", conversion.designation);
+    }
 }
 
 test "posix TZ string" {
@@ -868,16 +895,22 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "MDT", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    try testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 3, .n = 2, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
-    try testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 11, .n = 1, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.end);
+    try testing.expectEqual(PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = 3, .n = 2, .day = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
+    try testing.expectEqual(PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = 11, .n = 1, .day = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.end);
 
-    // TODO : revise
-    // try testing.expectEqual(stdoff, result.offset(1612734960).offset);
-    // try testing.expectEqual(stdoff, result.offset(1615712399 - 7 * std.time.s_per_hour).offset);
-    // try testing.expectEqual(dstoff, result.offset(1615712400 - 7 * std.time.s_per_hour).offset);
-    // try testing.expectEqual(dstoff, result.offset(1620453601).offset);
-    // try testing.expectEqual(dstoff, result.offset(1636275599 - 7 * std.time.s_per_hour).offset);
-    // try testing.expectEqual(stdoff, result.offset(1636275600 - 7 * std.time.s_per_hour).offset);
+    try testing.expectEqual(stdoff, result.offset(1612734960).offset);
+
+    // 2021-03-14T01:59:59-07:00 (2nd Sunday of the 3rd month, MST)
+    try testing.expectEqual(stdoff, result.offset(1615712399).offset);
+    // 2021-03-14T02:00:00-07:00 (2nd Sunday of the 3rd month, MST)
+    try testing.expectEqual(dstoff, result.offset(1615712400).offset);
+
+    try testing.expectEqual(dstoff, result.offset(1620453601).offset);
+
+    // 2021-11-07T01:59:59-06:00 (1st Sunday of the 11th month, MDT)
+    try testing.expectEqual(dstoff, result.offset(1636271999).offset);
+    // 2021-11-07T02:00:00-06:00 (1st Sunday of the 11th month, MDT)
+    try testing.expectEqual(stdoff, result.offset(1636272000).offset);
 
     // e.g. Europe/Berlin; DST transition time at 2 am if DST off-->on, 3 am if DST on-->off
     result = try parsePosixTZ("CET-1CEST,M3.5.0,M10.5.0/3");
@@ -888,12 +921,13 @@ test "posix TZ string" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "CEST", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    try testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 3, .n = 5, .d = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
-    try testing.expectEqual(PosixTZ.Rule{ .MonthWeekDay = .{ .m = 10, .n = 5, .d = 0, .time = 3 * std.time.s_per_hour } }, result.dst_range.?.end);
+    try testing.expectEqual(PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = 3, .n = 5, .day = 0, .time = 2 * std.time.s_per_hour } }, result.dst_range.?.start);
+    try testing.expectEqual(PosixTZ.Rule{ .MonthNthWeekDay = .{ .month = 10, .n = 5, .day = 0, .time = 3 * std.time.s_per_hour } }, result.dst_range.?.end);
 
-    // TODO : revise
-    // try testing.expectEqual(dstoff, result.offset(1698541199).offset); // 2023-10-29T00:59:59Z, => CEST
-    // try testing.expectEqual(stdoff, result.offset(1698541200).offset); // 2023-10-29T01:00:00Z, => CET
+    // 2023-10-29T00:59:59Z, or 2023-10-29 01:59:59 CEST. Offset should still be CEST.
+    try testing.expectEqual(dstoff, result.offset(1698541199).offset);
+    // 2023-10-29T01:00:00Z, or 2023-10-29 03:00:00 CEST. Offset should now be CET.
+    try testing.expectEqual(stdoff, result.offset(1698541200).offset);
 
     // TODO : add more tests
 }
