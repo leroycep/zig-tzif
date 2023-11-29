@@ -1456,23 +1456,30 @@ test "posix TZ string, leap year, Asia/Jerusalem" {
     try testing.expectEqual(stdoff, result.offset(1603580400).offset);
 }
 
-// FIXME : Buenos Aires has DST all year long
+// FIXME : Buenos Aires has DST all year long, make sure that it never returns the STD offset
 test "posix TZ string, leap year, America/Argentina/Buenos_Aires" {
     if (true) return error.SkipZigTest;
     // IANA identifier: America/Argentina/Buenos_Aires
     const result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
-    const stdoff: i32 = -10800;
-    const dstoff: i32 = -10800;
+    const stdoff: i32 = -4 * std.time.s_per_hour;
+    const dstoff: i32 = -3 * std.time.s_per_hour;
     try testing.expectEqualSlices(u8, "WART", result.std_designation);
     try testing.expectEqualSlices(u8, "WARST", result.dst_designation.?);
-    try testing.expectEqual(stdoff, result.std_offset); // FIXME : this does not work yet
-    try testing.expectEqual(dstoff, result.dst_offset); // FIXME : this does not work yet
+    _ = stdoff;
+
     // transition std 2020-03-27T01:59:59-03:00 --> dst 2020-03-27T03:00:00-03:00
-    try testing.expectEqual(stdoff, result.offset(1585285199).offset);
+    try testing.expectEqual(dstoff, result.offset(1585285199).offset);
     try testing.expectEqual(dstoff, result.offset(1585288800).offset);
     // transtion dst 2020-10-25T01:59:59-03:00 --> std 2020-10-25T01:00:00-03:00
     try testing.expectEqual(dstoff, result.offset(1603601999).offset);
-    try testing.expectEqual(stdoff, result.offset(1603598400).offset);
+    try testing.expectEqual(dstoff, result.offset(1603598400).offset);
+
+    // Make sure it returns dstoff at the start of the year
+    try testing.expectEqual(dstoff, result.offset(1577836800).offset); // 2020
+    try testing.expectEqual(dstoff, result.offset(1609459200).offset); // 2021
+
+    // Make sure it returns dstoff at the end of the year
+    try testing.expectEqual(dstoff, result.offset(1609459199).offset);
 }
 
 test "posix TZ string, leap year, America/Nuuk" {
