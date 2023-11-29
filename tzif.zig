@@ -357,7 +357,20 @@ pub const PosixTZ = struct {
     ) !void {
         _ = fmt;
         _ = options;
-        try writer.writeAll(this.std_designation);
+
+        const should_quote_std_designation = for (this.std_designation) |character| {
+            if (!std.ascii.isAlphabetic(character)) {
+                break true;
+            }
+        } else false;
+
+        if (should_quote_std_designation) {
+            try writer.writeAll("<");
+            try writer.writeAll(this.std_designation);
+            try writer.writeAll(">");
+        } else {
+            try writer.writeAll(this.std_designation);
+        }
 
         const std_offset_west = -this.std_offset;
         const std_seconds = @mod(std_offset_west, std.time.s_per_min);
@@ -373,7 +386,19 @@ pub const PosixTZ = struct {
         }
 
         if (this.dst_designation) |dst_designation| {
-            try writer.writeAll(dst_designation);
+            const should_quote_dst_designation = for (dst_designation) |character| {
+                if (!std.ascii.isAlphabetic(character)) {
+                    break true;
+                }
+            } else false;
+
+            if (should_quote_dst_designation) {
+                try writer.writeAll("<");
+                try writer.writeAll(dst_designation);
+                try writer.writeAll(">");
+            } else {
+                try writer.writeAll(dst_designation);
+            }
 
             // Only write out the DST offset if it is not just the standard offset plus an hour
             if (this.dst_offset != this.std_offset + std.time.s_per_hour) {
@@ -450,6 +475,15 @@ pub const PosixTZ = struct {
             },
         };
         try std.testing.expectFmt("CET-1CEST,M3.5.0,M10.5.0/3", "{}", .{europe_berlin});
+
+        const antarctica_syowa = PosixTZ{
+            .std_designation = "+03",
+            .std_offset = 3 * std.time.s_per_hour,
+            .dst_designation = null,
+            .dst_offset = undefined,
+            .dst_range = null,
+        };
+        try std.testing.expectFmt("<+03>-3", "{}", .{antarctica_syowa});
     }
 };
 
