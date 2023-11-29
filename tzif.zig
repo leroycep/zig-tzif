@@ -216,6 +216,24 @@ pub const PosixTZ = struct {
             time: i32 = 2 * std.time.s_per_hour,
         },
 
+        pub fn isAtStartOfYear(this: @This()) bool {
+            switch (this) {
+                .JulianDay => |j| return j.day == 1 and j.time == 0,
+                .JulianDayZero => |j| return j.day == 0 and j.time == 0,
+                .MonthNthWeekDay => |mwd| return mwd.month == 1 and mwd.n == 1 and mwd.day == 0 and mwd.time == 0,
+            }
+        }
+
+        pub fn isAtEndOfYear(this: @This()) bool {
+            switch (this) {
+                .JulianDay => |j| return j.day == 365 and j.time >= 24,
+                // Since JulianDayZero dates account for leap year, it would vary depending on the year.
+                .JulianDayZero => return false,
+                // There is also no way to specify "end of the year" with MonthNthWeekDay rules
+                .MonthNthWeekDay => return false,
+            }
+        }
+
         /// Returned value is the local timestamp when the timezone will transition in the given year.
         pub fn toSecs(this: @This(), year: i32) i64 {
             const is_leap: bool = isLeapYear(year);
@@ -331,6 +349,12 @@ pub const PosixTZ = struct {
             const utc_year = secs_to_year(utc);
             const start_dst = range.start.toSecs(utc_year) - this.std_offset;
             const end_dst = range.end.toSecs(utc_year) - this.dst_offset;
+
+            const is_dst_all_year = range.start.isAtStartOfYear() and range.end.isAtEndOfYear();
+            if (is_dst_all_year) {
+                return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
+            }
+
             if (start_dst < end_dst) {
                 if (utc >= start_dst and utc < end_dst) {
                     return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
@@ -1458,7 +1482,6 @@ test "posix TZ string, leap year, Asia/Jerusalem" {
 
 // FIXME : Buenos Aires has DST all year long, make sure that it never returns the STD offset
 test "posix TZ string, leap year, America/Argentina/Buenos_Aires" {
-    if (true) return error.SkipZigTest;
     // IANA identifier: America/Argentina/Buenos_Aires
     const result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
     const stdoff: i32 = -4 * std.time.s_per_hour;
