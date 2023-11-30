@@ -759,9 +759,17 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
     if (string.len < 2) return error.InvalidFormat;
 
     const time: i32 = if (std.mem.indexOf(u8, string, "/")) |start_of_time| parse_time: {
-        var _i: usize = 0;
-        // This is ugly, should stick with one unit or the other for hhmmss offsets
-        const time = try hhmmss_offset_to_s(string[start_of_time + 1 ..], &_i);
+        const time_string = string[start_of_time + 1 ..];
+
+        var i: usize = 0;
+        const time = try hhmmss_offset_to_s(time_string, &i);
+
+        // The time at the end of the rule should be the last thing in the string. Fixes the parsing to return
+        // an error in cases like "/2/3", where they have some extra characters.
+        if (i != time_string.len) {
+            return error.InvalidFormat;
+        }
+
         string = string[0..start_of_time];
         break :parse_time time;
     } else 2 * std.time.s_per_hour;
