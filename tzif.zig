@@ -1334,14 +1334,12 @@ test "posix TZ string, regular year" {
     try testing.expectEqual(stdoff, result.std_offset);
     try testing.expectEqualSlices(u8, "WGST", result.dst_designation.?);
     try testing.expectEqual(dstoff, result.dst_offset);
-    // // FIXME : this does not work yet
-    // 2023, normal year
-    // // transition std 2023-03-28T21:59:59-02:00 --> dst 2023-03-28T23:00:00-02:00
-    // try testing.expectEqual(stdoff, result.offset(1680047999).offset);
-    // try testing.expectEqual(dstoff, result.offset(1680051600).offset);
-    // // transition dst 2023-10-24T22:59:59-02:00 --> std 2023-10-24T22:00:00-02:00
-    // try testing.expectEqual(dstoff, result.offset(1698195599).offset);
-    // try testing.expectEqual(stdoff, result.offset(1698192000).offset);
+    // transition std 2021-03-27T21:59:59-03:00 --> dst 2021-03-27T23:00:00-02:00
+    try testing.expectEqual(stdoff, result.offset(1616893199).offset);
+    try testing.expectEqual(dstoff, result.offset(1616893200).offset);
+    // transition dst 2021-10-30T22:59:59-02:00 --> std 2021-10-30T22:00:00-03:00
+    try testing.expectEqual(dstoff, result.offset(1635641999).offset);
+    try testing.expectEqual(stdoff, result.offset(1635642000).offset);
 }
 
 test "posix TZ string, leap year, America/New_York, start transition time specified" {
