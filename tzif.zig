@@ -771,15 +771,24 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
         }
 
         string = string[0..start_of_time];
+
         break :parse_time time;
     } else 2 * std.time.s_per_hour;
 
     if (string[0] == 'J') {
-        const julian_day1 = try std.fmt.parseInt(u16, string[1..], 10);
+        const julian_day1 = std.fmt.parseInt(u16, string[1..], 10) catch |err| switch (err) {
+            error.InvalidCharacter => return error.InvalidFormat,
+            error.Overflow => return error.InvalidFormat,
+        };
+
         if (julian_day1 < 1 or julian_day1 > 365) return error.InvalidFormat;
         return PosixTZ.Rule{ .JulianDay = .{ .day = julian_day1, .time = time } };
     } else if (std.ascii.isDigit(string[0])) {
-        const julian_day0 = try std.fmt.parseInt(u16, string[0..], 10);
+        const julian_day0 = std.fmt.parseInt(u16, string[0..], 10) catch |err| switch (err) {
+            error.InvalidCharacter => return error.InvalidFormat,
+            error.Overflow => return error.InvalidFormat,
+        };
+
         if (julian_day0 > 365) return error.InvalidFormat;
         return PosixTZ.Rule{ .JulianDayZero = .{ .day = julian_day0, .time = time } };
     } else if (string[0] == 'M') {
@@ -788,9 +797,18 @@ fn parsePosixTZ_rule(_string: []const u8) !PosixTZ.Rule {
         const n_str = split_iter.next() orelse return error.InvalidFormat;
         const d_str = split_iter.next() orelse return error.InvalidFormat;
 
-        const m = try std.fmt.parseInt(u8, m_str, 10);
-        const n = try std.fmt.parseInt(u8, n_str, 10);
-        const d = try std.fmt.parseInt(u8, d_str, 10);
+        const m = std.fmt.parseInt(u8, m_str, 10) catch |err| switch (err) {
+            error.InvalidCharacter => return error.InvalidFormat,
+            error.Overflow => return error.InvalidFormat,
+        };
+        const n = std.fmt.parseInt(u8, n_str, 10) catch |err| switch (err) {
+            error.InvalidCharacter => return error.InvalidFormat,
+            error.Overflow => return error.InvalidFormat,
+        };
+        const d = std.fmt.parseInt(u8, d_str, 10) catch |err| switch (err) {
+            error.InvalidCharacter => return error.InvalidFormat,
+            error.Overflow => return error.InvalidFormat,
+        };
 
         if (m < 1 or m > 12) return error.InvalidFormat;
         if (n < 1 or n > 5) return error.InvalidFormat;
