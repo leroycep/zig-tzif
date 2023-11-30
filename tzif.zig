@@ -1596,87 +1596,116 @@ test "posix TZ, valid strings" {
     }
 }
 
-test "posix TZ, invalid strings" {
-    // FIXME : this does not work yet
-    if (true) return error.SkipZigTest;
-    // from CPython's zoneinfo tests;
-    // https://github.com/python/cpython/blob/main/Lib/test/test_zoneinfo/test_zoneinfo.py
-    const invalid_tzstrs = [_][]const u8{
-        "PST8PDT", // DST but no transition specified
-        "+11", // Unquoted alphanumeric
-        "GMT,M3.2.0/2,M11.1.0/3", // Transition rule but no DST
-        "GMT0+11,M3.2.0/2,M11.1.0/3", // Unquoted alphanumeric in DST
-        "PST8PDT,M3.2.0/2", // Only one transition rule
-        // Invalid offset hours
-        "AAA168",
-        "AAA+168",
-        "AAA-168",
-        "AAA168BBB,J60/2,J300/2",
-        "AAA+168BBB,J60/2,J300/2",
-        "AAA-168BBB,J60/2,J300/2",
-        "AAA4BBB168,J60/2,J300/2",
-        "AAA4BBB+168,J60/2,J300/2",
-        "AAA4BBB-168,J60/2,J300/2",
-        // Invalid offset minutes
-        "AAA4:0BBB,J60/2,J300/2",
-        "AAA4:100BBB,J60/2,J300/2",
-        "AAA4BBB5:0,J60/2,J300/2",
-        "AAA4BBB5:100,J60/2,J300/2",
-        // Invalid offset seconds
-        "AAA4:00:0BBB,J60/2,J300/2",
-        "AAA4:00:100BBB,J60/2,J300/2",
-        "AAA4BBB5:00:0,J60/2,J300/2",
-        "AAA4BBB5:00:100,J60/2,J300/2",
-        // Completely invalid dates
-        "AAA4BBB,M1443339,M11.1.0/3",
-        "AAA4BBB,M3.2.0/2,0349309483959c",
-        "AAA4BBB,,J300/2",
-        "AAA4BBB,z,J300/2",
-        "AAA4BBB,J60/2,",
-        "AAA4BBB,J60/2,z",
-        // Invalid months
-        "AAA4BBB,M13.1.1/2,M1.1.1/2",
-        "AAA4BBB,M1.1.1/2,M13.1.1/2",
-        "AAA4BBB,M0.1.1/2,M1.1.1/2",
-        "AAA4BBB,M1.1.1/2,M0.1.1/2",
-        // Invalid weeks
-        "AAA4BBB,M1.6.1/2,M1.1.1/2",
-        "AAA4BBB,M1.1.1/2,M1.6.1/2",
-        // Invalid weekday
-        "AAA4BBB,M1.1.7/2,M2.1.1/2",
-        "AAA4BBB,M1.1.1/2,M2.1.7/2",
-        // Invalid numeric offset
-        "AAA4BBB,-1/2,20/2",
-        "AAA4BBB,1/2,-1/2",
-        "AAA4BBB,367,20/2",
-        "AAA4BBB,1/2,367/2",
-        // Invalid julian offset
-        "AAA4BBB,J0/2,J20/2",
-        "AAA4BBB,J20/2,J366/2",
-        // Invalid transition time
-        "AAA4BBB,J60/2/3,J300/2",
-        "AAA4BBB,J60/2,J300/2/3",
-        // Invalid transition hour
-        "AAA4BBB,J60/168,J300/2",
-        "AAA4BBB,J60/+168,J300/2",
-        "AAA4BBB,J60/-168,J300/2",
-        "AAA4BBB,J60/2,J300/168",
-        "AAA4BBB,J60/2,J300/+168",
-        "AAA4BBB,J60/2,J300/-168",
-        // Invalid transition minutes
-        "AAA4BBB,J60/2:0,J300/2",
-        "AAA4BBB,J60/2:100,J300/2",
-        "AAA4BBB,J60/2,J300/2:0",
-        "AAA4BBB,J60/2,J300/2:100",
-        // Invalid transition seconds
-        "AAA4BBB,J60/2:00:0,J300/2",
-        "AAA4BBB,J60/2:00:100,J300/2",
-        "AAA4BBB,J60/2,J300/2:00:0",
-        "AAA4BBB,J60/2,J300/2:00:100",
-    };
-    for (invalid_tzstrs) |invalid_str| {
-        _ = parsePosixTZ(invalid_str) catch |err| {
-            try testing.expect(err == error.InvalidFormat);
-        };
-    }
+// The following tests are from CPython's zoneinfo tests;
+// https://github.com/python/cpython/blob/main/Lib/test/test_zoneinfo/test_zoneinfo.py
+test "posix TZ invalid string, unquoted alphanumeric" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("+11"));
+}
+
+test "posix TZ invalid string, unquoted alphanumeric in DST" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("GMT0+11,M3.2.0/2,M11.1.0/3"));
+}
+
+test "posix TZ invalid string, DST but no transition specified" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("PST8PDT"));
+}
+
+test "posix TZ invalid string, only one transition rule" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("PST8PDT,M3.2.0/2"));
+}
+
+test "posix TZ invalid string, transition rule but no DST" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("GMT,M3.2.0/2,M11.1.0/3"));
+}
+
+test "posix TZ invalid offset hours" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA168"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA+168"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA-168"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA168BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA+168BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA-168BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB168,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB+168,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB-168,J60/2,J300/2"));
+}
+
+test "posix TZ invalid offset minutes" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4:0BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4:100BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB5:0,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB5:100,J60/2,J300/2"));
+}
+
+test "posix TZ invalid offset seconds" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4:00:0BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4:00:100BBB,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB5:00:0,J60/2,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB5:00:100,J60/2,J300/2"));
+}
+
+test "posix TZ completely invalid dates" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1443339,M11.1.0/3"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M3.2.0/2,0349309483959c"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,z,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,z"));
+}
+
+test "posix TZ invalid months" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M13.1.1/2,M1.1.1/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1.1.1/2,M13.1.1/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M0.1.1/2,M1.1.1/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1.1.1/2,M0.1.1/2"));
+}
+
+test "posix TZ invalid weeks" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1.6.1/2,M1.1.1/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1.1.1/2,M1.6.1/2"));
+}
+
+test "posix TZ invalid weekday" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1.1.7/2,M2.1.1/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,M1.1.1/2,M2.1.7/2"));
+}
+
+test "posix TZ invalid numeric offset" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,-1/2,20/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,1/2,-1/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,367,20/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,1/2,367/2"));
+}
+
+test "posix TZ invalid julian offset" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J0/2,J20/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J20/2,J366/2"));
+}
+
+test "posix TZ invalid transition time" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2/3,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/2/3"));
+}
+
+test "posix TZ invalid transition hour" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/168,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/+168,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/-168,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/168"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/+168"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/-168"));
+}
+
+test "posix TZ invalid transition minutes" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2:0,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2:100,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/2:0"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/2:100"));
+}
+
+test "posix TZ invalid transition seconds" {
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2:00:0,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2:00:100,J300/2"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/2:00:0"));
+    try std.testing.expectError(error.InvalidFormat, parsePosixTZ("AAA4BBB,J60/2,J300/2:00:100"));
 }
