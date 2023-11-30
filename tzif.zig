@@ -1359,15 +1359,12 @@ test "posix TZ string, regular year" {
     dstoff = -10800;
     try testing.expectEqualSlices(u8, "WART", result.std_designation);
     try testing.expectEqualSlices(u8, "WARST", result.dst_designation.?);
-    // // FIXME : this does not work yet
-    // try testing.expectEqual(stdoff, result.std_offset);
-    // try testing.expectEqual(dstoff, result.dst_offset);
-    // // transition std 2023-03-24T01:59:59-03:00 --> dst 2023-03-24T03:00:00-03:00
-    // try testing.expectEqual(stdoff, result.offset(1679633999).offset);
-    // try testing.expectEqual(dstoff, result.offset(1679637600).offset);
-    // // transition dst 2023-10-29T01:59:59-03:00 --> std 2023-10-29T01:00:00-03:00
-    // try testing.expectEqual(dstoff, result.offset(1698555599).offset);
-    // try testing.expectEqual(stdoff, result.offset(1698552000).offset);
+    // transition std 2023-03-24T01:59:59-03:00 --> dst 2023-03-24T03:00:00-03:00
+    try testing.expectEqual(stdoff, result.offset(1679633999).offset);
+    try testing.expectEqual(dstoff, result.offset(1679637600).offset);
+    // transition dst 2023-10-29T01:59:59-03:00 --> std 2023-10-29T01:00:00-03:00
+    try testing.expectEqual(dstoff, result.offset(1698555599).offset);
+    try testing.expectEqual(stdoff, result.offset(1698552000).offset);
 
     // IANA identifier: America/Nuuk
     result = try parsePosixTZ("WGT3WGST,M3.5.0/-2,M10.5.0/-1");
