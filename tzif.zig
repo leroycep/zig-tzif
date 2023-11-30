@@ -846,7 +846,7 @@ pub fn parsePosixTZ(string: []const u8) !PosixTZ {
 
     result.std_designation = try parsePosixTZ_designation(string, &idx);
 
-    // multiply by -1 to get offset as seconds East of Greenwich was TZif specifies it:
+    // multiply by -1 to get offset as seconds East of Greenwich as TZif specifies it:
     result.std_offset = try hhmmss_offset_to_s(string[idx..], &idx) * -1;
     if (idx >= string.len) {
         return result;
@@ -856,7 +856,7 @@ pub fn parsePosixTZ(string: []const u8) !PosixTZ {
         result.dst_designation = try parsePosixTZ_designation(string, &idx);
 
         if (idx < string.len and string[idx] != ',') {
-            // multiply by -1 to get offset as seconds East of Greenwich was TZif specifies it:
+            // multiply by -1 to get offset as seconds East of Greenwich as TZif specifies it:
             result.dst_offset = try hhmmss_offset_to_s(string[idx..], &idx) * -1;
         } else {
             result.dst_offset = result.std_offset + std.time.s_per_hour;
