@@ -1521,7 +1521,7 @@ test "posix TZ string, leap year, Asia/Jerusalem" {
     try testing.expectEqual(stdoff, result.offset(1603580400).offset);
 }
 
-// FIXME : Buenos Aires has DST all year long, make sure that it never returns the STD offset
+// Buenos Aires has DST all year long, make sure that it never returns the STD offset
 test "posix TZ string, leap year, America/Argentina/Buenos_Aires" {
     // IANA identifier: America/Argentina/Buenos_Aires
     const result = try parsePosixTZ("WART4WARST,J1/0,J365/25");
