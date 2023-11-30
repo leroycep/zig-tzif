@@ -694,6 +694,7 @@ pub fn parseHeader(reader: anytype, seekableStream: anytype) !TZifHeader {
     };
 }
 
+/// Parses hh[:mm[:ss]] to a number of seconds. Hours may be one digit long. Minutes and seconds must be two digits.
 fn hhmmss_offset_to_s(_string: []const u8, idx: *usize) !i32 {
     var string = _string;
     var sign: i2 = 1;
@@ -719,20 +720,32 @@ fn hhmmss_offset_to_s(_string: []const u8, idx: *usize) !i32 {
 
     var segment_iter = std.mem.split(u8, string, ":");
     const hour_string = segment_iter.next() orelse return error.EmptyString;
-    const hours = try std.fmt.parseInt(u32, hour_string, 10);
+    const hours = std.fmt.parseInt(u32, hour_string, 10) catch |err| switch (err) {
+        error.InvalidCharacter => return error.InvalidFormat,
+        error.Overflow => return error.InvalidFormat,
+    };
     if (hours > 167) {
+        // TODO: use diagnostics mechanism instead of logging
         log.warn("too many hours! {}", .{hours});
         return error.InvalidFormat;
     }
     result += std.time.s_per_hour * @as(i32, @intCast(hours));
 
     if (segment_iter.next()) |minute_string| {
+        if (minute_string.len != 2) {
+            // TODO: Add diagnostics when returning an error.
+            return error.InvalidFormat;
+        }
         const minutes = try std.fmt.parseInt(u32, minute_string, 10);
         if (minutes > 59) return error.InvalidFormat;
         result += std.time.s_per_min * @as(i32, @intCast(minutes));
     }
 
     if (segment_iter.next()) |second_string| {
+        if (second_string.len != 2) {
+            // TODO: Add diagnostics when returning an error.
+            return error.InvalidFormat;
+        }
         const seconds = try std.fmt.parseInt(u8, second_string, 10);
         if (seconds > 59) return error.InvalidFormat;
         result += seconds;
