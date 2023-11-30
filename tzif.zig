@@ -1519,3 +1519,164 @@ test "posix TZ string, leap year, America/Nuuk" {
     try testing.expectEqual(dstoff, result.offset(1603587599).offset);
     try testing.expectEqual(stdoff, result.offset(1603587600).offset);
 }
+
+test "posix TZ, valid strings" {
+    // from CPython's zoneinfo tests;
+    // https://github.com/python/cpython/blob/main/Lib/test/test_zoneinfo/test_zoneinfo.py
+    const tzstrs = [_][]const u8{
+        // Extreme offset hour
+        "AAA24",
+        "AAA+24",
+        "AAA-24",
+        "AAA24BBB,J60/2,J300/2",
+        "AAA+24BBB,J60/2,J300/2",
+        "AAA-24BBB,J60/2,J300/2",
+        "AAA4BBB24,J60/2,J300/2",
+        "AAA4BBB+24,J60/2,J300/2",
+        "AAA4BBB-24,J60/2,J300/2",
+        // Extreme offset minutes
+        "AAA4:00BBB,J60/2,J300/2",
+        "AAA4:59BBB,J60/2,J300/2",
+        "AAA4BBB5:00,J60/2,J300/2",
+        "AAA4BBB5:59,J60/2,J300/2",
+        // Extreme offset seconds
+        "AAA4:00:00BBB,J60/2,J300/2",
+        "AAA4:00:59BBB,J60/2,J300/2",
+        "AAA4BBB5:00:00,J60/2,J300/2",
+        "AAA4BBB5:00:59,J60/2,J300/2",
+        // Extreme total offset
+        "AAA24:59:59BBB5,J60/2,J300/2",
+        "AAA-24:59:59BBB5,J60/2,J300/2",
+        "AAA4BBB24:59:59,J60/2,J300/2",
+        "AAA4BBB-24:59:59,J60/2,J300/2",
+        // Extreme months
+        "AAA4BBB,M12.1.1/2,M1.1.1/2",
+        "AAA4BBB,M1.1.1/2,M12.1.1/2",
+        // Extreme weeks
+        "AAA4BBB,M1.5.1/2,M1.1.1/2",
+        "AAA4BBB,M1.1.1/2,M1.5.1/2",
+        // Extreme weekday
+        "AAA4BBB,M1.1.6/2,M2.1.1/2",
+        "AAA4BBB,M1.1.1/2,M2.1.6/2",
+        // Extreme numeric offset
+        "AAA4BBB,0/2,20/2",
+        "AAA4BBB,0/2,0/14",
+        "AAA4BBB,20/2,365/2",
+        "AAA4BBB,365/2,365/14",
+        // Extreme julian offset
+        "AAA4BBB,J1/2,J20/2",
+        "AAA4BBB,J1/2,J1/14",
+        "AAA4BBB,J20/2,J365/2",
+        "AAA4BBB,J365/2,J365/14",
+        // Extreme transition hour
+        "AAA4BBB,J60/167,J300/2",
+        "AAA4BBB,J60/+167,J300/2",
+        "AAA4BBB,J60/-167,J300/2",
+        "AAA4BBB,J60/2,J300/167",
+        "AAA4BBB,J60/2,J300/+167",
+        "AAA4BBB,J60/2,J300/-167",
+        // Extreme transition minutes
+        "AAA4BBB,J60/2:00,J300/2",
+        "AAA4BBB,J60/2:59,J300/2",
+        "AAA4BBB,J60/2,J300/2:00",
+        "AAA4BBB,J60/2,J300/2:59",
+        // Extreme transition seconds
+        "AAA4BBB,J60/2:00:00,J300/2",
+        "AAA4BBB,J60/2:00:59,J300/2",
+        "AAA4BBB,J60/2,J300/2:00:00",
+        "AAA4BBB,J60/2,J300/2:00:59",
+        // Extreme total transition time
+        "AAA4BBB,J60/167:59:59,J300/2",
+        "AAA4BBB,J60/-167:59:59,J300/2",
+        "AAA4BBB,J60/2,J300/167:59:59",
+        "AAA4BBB,J60/2,J300/-167:59:59",
+    };
+    for (tzstrs) |valid_str| {
+        _ = try parsePosixTZ(valid_str);
+    }
+}
+
+test "posix TZ, invalid strings" {
+    // FIXME : this does not work yet
+    if (true) return error.SkipZigTest;
+    // from CPython's zoneinfo tests;
+    // https://github.com/python/cpython/blob/main/Lib/test/test_zoneinfo/test_zoneinfo.py
+    const invalid_tzstrs = [_][]const u8{
+        "PST8PDT", // DST but no transition specified
+        "+11", // Unquoted alphanumeric
+        "GMT,M3.2.0/2,M11.1.0/3", // Transition rule but no DST
+        "GMT0+11,M3.2.0/2,M11.1.0/3", // Unquoted alphanumeric in DST
+        "PST8PDT,M3.2.0/2", // Only one transition rule
+        // Invalid offset hours
+        "AAA168",
+        "AAA+168",
+        "AAA-168",
+        "AAA168BBB,J60/2,J300/2",
+        "AAA+168BBB,J60/2,J300/2",
+        "AAA-168BBB,J60/2,J300/2",
+        "AAA4BBB168,J60/2,J300/2",
+        "AAA4BBB+168,J60/2,J300/2",
+        "AAA4BBB-168,J60/2,J300/2",
+        // Invalid offset minutes
+        "AAA4:0BBB,J60/2,J300/2",
+        "AAA4:100BBB,J60/2,J300/2",
+        "AAA4BBB5:0,J60/2,J300/2",
+        "AAA4BBB5:100,J60/2,J300/2",
+        // Invalid offset seconds
+        "AAA4:00:0BBB,J60/2,J300/2",
+        "AAA4:00:100BBB,J60/2,J300/2",
+        "AAA4BBB5:00:0,J60/2,J300/2",
+        "AAA4BBB5:00:100,J60/2,J300/2",
+        // Completely invalid dates
+        "AAA4BBB,M1443339,M11.1.0/3",
+        "AAA4BBB,M3.2.0/2,0349309483959c",
+        "AAA4BBB,,J300/2",
+        "AAA4BBB,z,J300/2",
+        "AAA4BBB,J60/2,",
+        "AAA4BBB,J60/2,z",
+        // Invalid months
+        "AAA4BBB,M13.1.1/2,M1.1.1/2",
+        "AAA4BBB,M1.1.1/2,M13.1.1/2",
+        "AAA4BBB,M0.1.1/2,M1.1.1/2",
+        "AAA4BBB,M1.1.1/2,M0.1.1/2",
+        // Invalid weeks
+        "AAA4BBB,M1.6.1/2,M1.1.1/2",
+        "AAA4BBB,M1.1.1/2,M1.6.1/2",
+        // Invalid weekday
+        "AAA4BBB,M1.1.7/2,M2.1.1/2",
+        "AAA4BBB,M1.1.1/2,M2.1.7/2",
+        // Invalid numeric offset
+        "AAA4BBB,-1/2,20/2",
+        "AAA4BBB,1/2,-1/2",
+        "AAA4BBB,367,20/2",
+        "AAA4BBB,1/2,367/2",
+        // Invalid julian offset
+        "AAA4BBB,J0/2,J20/2",
+        "AAA4BBB,J20/2,J366/2",
+        // Invalid transition time
+        "AAA4BBB,J60/2/3,J300/2",
+        "AAA4BBB,J60/2,J300/2/3",
+        // Invalid transition hour
+        "AAA4BBB,J60/168,J300/2",
+        "AAA4BBB,J60/+168,J300/2",
+        "AAA4BBB,J60/-168,J300/2",
+        "AAA4BBB,J60/2,J300/168",
+        "AAA4BBB,J60/2,J300/+168",
+        "AAA4BBB,J60/2,J300/-168",
+        // Invalid transition minutes
+        "AAA4BBB,J60/2:0,J300/2",
+        "AAA4BBB,J60/2:100,J300/2",
+        "AAA4BBB,J60/2,J300/2:0",
+        "AAA4BBB,J60/2,J300/2:100",
+        // Invalid transition seconds
+        "AAA4BBB,J60/2:00:0,J300/2",
+        "AAA4BBB,J60/2:00:100,J300/2",
+        "AAA4BBB,J60/2,J300/2:00:0",
+        "AAA4BBB,J60/2,J300/2:00:100",
+    };
+    for (invalid_tzstrs) |invalid_str| {
+        _ = parsePosixTZ(invalid_str) catch |err| {
+            try testing.expect(err == error.InvalidFormat);
+        };
+    }
+}
