@@ -829,6 +829,10 @@ fn parsePosixTZ_designation(string: []const u8, idx: *usize) ![]const u8 {
             (!quoted and !std.ascii.isAlphabetic(string[idx.*])))
         {
             const designation = string[start..idx.*];
+
+            // The designation must be at least one character long!
+            if (designation.len == 0) return error.InvalidFormat;
+
             if (quoted) idx.* += 1;
             return designation;
         }
