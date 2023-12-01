@@ -631,7 +631,7 @@ fn year_to_secs(year: i32) i64 {
         cycles_since_epoch;
 
     const SECONDS_PER_REGULAR_YEAR = 365 * std.time.s_per_day;
-    return years_since_epoch * SECONDS_PER_REGULAR_YEAR + number_of_leap_days_since_epoch * std.time.s_per_day;
+    return @as(i64, years_since_epoch) * SECONDS_PER_REGULAR_YEAR + number_of_leap_days_since_epoch * std.time.s_per_day;
 }
 
 test year_to_secs {
@@ -1835,8 +1835,6 @@ test "posix TZ <-04>4<-03>,M9.1.6/24,M4.1.6/24 from zoneinfo_test.py" {
 test "posix TZ EST5EDT,0/0,J365/25 from zoneinfo_test.py" {
     // Permanent daylight saving time is modeled with transitions at 0/0
     // and J365/25, as mentioned in RFC 8536 Section 3.3.1
-    // FIXME : this does not work yet ( integer overflow )
-    if (true) return error.SkipZigTest;
     const result = try parsePosixTZ("EST5EDT,0/0,J365/25");
     try testing.expectEqual(@as(i32, -14400), result.offset(1546315200).offset); // 2019-01-01T00:00:00-04:00
     try testing.expectEqual(@as(i32, -14400), result.offset(1559361600).offset); // 2019-06-01T00:00:00-04:00
