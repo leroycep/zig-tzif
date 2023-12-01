@@ -363,9 +363,9 @@ pub const PosixTZ = struct {
                 }
             } else {
                 if (utc >= end_dst and utc < start_dst) {
-                    return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
-                } else {
                     return .{ .offset = this.std_offset, .designation = this.std_designation, .is_daylight_saving_time = false };
+                } else {
+                    return .{ .offset = this.dst_offset, .designation = dst_designation, .is_daylight_saving_time = true };
                 }
             }
         } else {
@@ -1784,8 +1784,6 @@ test "posix TZ GMT0BST-1,M3.5.0/1:00,M10.5.0/2:00 from zoneinfo_test.py" {
 
 test "posix TZ AEST-10AEDT,M10.1.0/2,M4.1.0/3 from zoneinfo_test.py" {
     // Austrialian time zone - DST start is chronologically first
-    // FIXME : this does not work yet
-    if (true) return error.SkipZigTest;
     const result = try parsePosixTZ("AEST-10AEDT,M10.1.0/2,M4.1.0/3");
     try testing.expectEqual(@as(i32, 39600), result.offset(1554469200).offset); // 2019-04-06T00:00:00+11:00
     try testing.expectEqual(@as(i32, 39600), result.offset(1554562740).offset); // 2019-04-07T01:59:00+11:00
@@ -1803,12 +1801,12 @@ test "posix TZ AEST-10AEDT,M10.1.0/2,M4.1.0/3 from zoneinfo_test.py" {
 
 test "posix TZ IST-1GMT0,M10.5.0,M3.5.0/1 from zoneinfo_test.py" {
     // Irish time zone - negative DST
-    // FIXME : this does not work yet
-    if (true) return error.SkipZigTest;
     const result = try parsePosixTZ("IST-1GMT0,M10.5.0,M3.5.0/1");
     try testing.expectEqual(@as(i32, 0), result.offset(1553904000).offset); // 2019-03-30T00:00:00+00:00
     try testing.expectEqual(@as(i32, 0), result.offset(1553993940).offset); // 2019-03-31T00:59:00+00:00
+    try testing.expectEqual(true, result.offset(1553993940).is_daylight_saving_time); // 2019-03-31T00:59:00+00:00
     try testing.expectEqual(@as(i32, 3600), result.offset(1553994000).offset); // 2019-03-31T02:00:00+01:00
+    try testing.expectEqual(false, result.offset(1553994000).is_daylight_saving_time); // 2019-03-31T02:00:00+01:00
     try testing.expectEqual(@as(i32, 3600), result.offset(1572044400).offset); // 2019-10-26T00:00:00+01:00
     try testing.expectEqual(@as(i32, 3600), result.offset(1572134340).offset); // 2019-10-27T00:59:00+01:00
     try testing.expectEqual(@as(i32, 3600), result.offset(1572134400).offset); // 2019-10-27T01:00:00+01:00
@@ -1829,8 +1827,6 @@ test "posix TZ <+11>-11 from zoneinfo_test.py" {
 
 test "posix TZ <-04>4<-03>,M9.1.6/24,M4.1.6/24 from zoneinfo_test.py" {
     // Quoted STD and DST, transitions at 24:00
-    // FIXME : this does not work yet
-    if (true) return error.SkipZigTest;
     const result = try parsePosixTZ("<-04>4<-03>,M9.1.6/24,M4.1.6/24");
     try testing.expectEqual(@as(i32, -14400), result.offset(1588305600).offset); // 2020-05-01T00:00:00-04:00
     try testing.expectEqual(@as(i32, -10800), result.offset(1604199600).offset); // 2020-11-01T00:00:00-03:00
