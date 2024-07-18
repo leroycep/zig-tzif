@@ -16,19 +16,19 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
 
     const module = b.addModule("tzif", .{
-        .source_file = .{ .path = "tzif.zig" },
+        .root_source_file = b.path("tzif.zig"),
     });
 
     const lib = b.addStaticLibrary(.{
         .name = "tzif",
-        .root_source_file = .{ .path = "tzif.zig" },
+        .root_source_file = b.path("tzif.zig"),
         .target = target,
         .optimize = optimize,
     });
     b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "tzif.zig" },
+        .root_source_file = b.path("tzif.zig"),
         .optimize = optimize,
     });
 
@@ -40,11 +40,11 @@ pub fn build(b: *Build) void {
     inline for (EXAMPLES) |example| {
         const exe = b.addExecutable(.{
             .name = example.name,
-            .root_source_file = .{ .path = example.path },
+            .root_source_file = b.path(example.path),
             .optimize = optimize,
             .target = target,
         });
-        exe.addModule("tzif", module);
+        exe.root_module.addImport("tzif", module);
 
         const run_example = b.addRunArtifact(exe);
         if (b.args) |args| {
